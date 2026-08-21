@@ -815,9 +815,18 @@ function getPeriodeGajian_(){
   return { berikutnya: gajianBulanIni, mulaiPeriode: buatTanggal(thnLalu, (blnLalu + 12) % 12) };
 }
 
+/** Cari hari-tersisa (r) minimum di mana saldo/r > target, lalu hitung
+ * berapa hari harus menahan diri (sisaHari sekarang - r) untuk sampai ke situ. */
+function hitungHariMenahan_(saldo, sisaHari, target){
+  for (let r = sisaHari; r >= 1; r--){
+    if (saldo / r > target) return { hariMenahan: sisaHari - r, sisaHariSaatNormal: r, bisaNormal: true };
+  }
+  return { hariMenahan: null, sisaHariSaatNormal: null, bisaNormal: false };
+}
+
 function renderRunway(){
   const today = new Date(); today.setHours(0,0,0,0);
-  const { berikutnya, mulaiPeriode } = getPeriodeGajian_();
+  const { berikutnya } = getPeriodeGajian_();
   const sisaHari = Math.max(1, Math.ceil((berikutnya - today) / 86400000));
 
   const saldoSekarang = DATA.reduce((s,t)=> s + (t.jenis==='Masuk' ? t.jumlah : -t.jumlah), 0);
@@ -826,28 +835,23 @@ function renderRunway(){
   document.getElementById('runwayJatah').textContent = rupiah(Math.max(0, jatahHarianAman));
   document.getElementById('runwaySub').textContent = sisaHari + ' hari lagi sampai gajian (tgl ' + PENGATURAN.tanggalGajian + ')';
 
-  const hariBerjalan = Math.max(1, Math.round((today - mulaiPeriode) / 86400000) + 1);
-  const pengeluaranPeriode = DATA
-    .filter(t => t.jenis === 'Keluar' && parseYMD(t.tanggal) >= mulaiPeriode && parseYMD(t.tanggal) <= today)
-    .reduce((s,t)=> s + t.jumlah, 0);
-  const anggaranIdeal = PENGATURAN.targetMinimumHarian * hariBerjalan;
-  const selisih = pengeluaranPeriode - anggaranIdeal;
-
   const warnEl = document.getElementById('runwayWarning');
   warnEl.style.display = 'block';
-  if (jatahHarianAman < PENGATURAN.targetMinimumHarian){
-    warnEl.style.background = 'rgba(255,120,80,.12)';
-    warnEl.style.color = '#ff8a65';
-    let msg = '⚠️ Jatah harian di bawah target minimum (' + rupiah(PENGATURAN.targetMinimumHarian) + ').';
-    if (selisih > 0){
-      const hariPuasa = Math.ceil(selisih / PENGATURAN.targetMinimumHarian);
-      msg += ' Sudah kelebihan belanja ' + rupiah(selisih) + ' dari target sejak periode gajian ini — sekitar <b>' + hariPuasa + ' hari</b> tanpa belanja untuk normal lagi.';
-    }
-    warnEl.innerHTML = msg;
-  } else {
+
+  if (jatahHarianAman > PENGATURAN.targetMinimumHarian){
     warnEl.style.background = 'rgba(80,220,150,.12)';
     warnEl.style.color = '#4ade80';
-    warnEl.textContent = '✅ Aman, masih di atas target minimum (' + rupiah(PENGATURAN.targetMinimumHarian) + '/hari).';
+    warnEl.textContent = '✅ Aman, jatah harian masih di atas target minimum (' + rupiah(PENGATURAN.targetMinimumHarian) + '/hari).';
+    return;
+  }
+
+  const hasil = hitungHariMenahan_(saldoSekarang, sisaHari, PENGATURAN.targetMinimumHarian);
+  warnEl.style.background = 'rgba(255,120,80,.12)';
+  warnEl.style.color = '#ff8a65';
+  if (hasil.bisaNormal){
+    warnEl.innerHTML = '⚠️ Jatah harian di bawah target (' + rupiah(PENGATURAN.targetMinimumHarian) + '). Tahan belanja selama <b>' + hasil.hariMenahan + ' hari</b> tanpa keluar uang sama sekali, baru saat sisa ' + hasil.sisaHariSaatNormal + ' hari lagi jatah harian bisa balik di atas target.';
+  } else {
+    warnEl.innerHTML = '🚨 Saldo saat ini (' + rupiah(saldoSekarang) + ') tidak akan pernah cukup memberi jatah di atas ' + rupiah(PENGATURAN.targetMinimumHarian) + '/hari sebelum gajian berikutnya, walau tidak belanja sama sekali. Perlu tambahan pemasukan.';
   }
 }
 
