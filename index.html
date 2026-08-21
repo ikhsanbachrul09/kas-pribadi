@@ -491,6 +491,16 @@
           </div>
         </div>
 
+      <div class="panel" id="panelRunway">
+        <div class="panel-head">
+          <h3>🎯 Jatah Harian sampai Gajian</h3>
+          <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openPengaturanModal()">⚙️ Pengaturan</span>
+          </div>
+        <div class="num" id="runwayJatah">Rp 0</div>
+          <div class="delta" id="runwaySub">boleh dibelanjakan hari ini</div>
+          <div id="runwayWarning" style="display:none; margin-top:12px; padding:10px 14px; border-radius:10px; font-size:13px; line-height:1.5;"></div>
+          </div>
+        
         <div class="row-2col">
           <div class="panel">
             <div class="panel-head">
@@ -687,6 +697,28 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modalPengaturan">
+  <div class="modal" style="max-width:420px;">
+    <h3>⚙️ Pengaturan Jatah Harian</h3>
+    <div class="modal-sub">Dipakai untuk menghitung jatah aman belanja per hari sampai gajian berikutnya.</div>
+    <div class="form-grid">
+      <div class="field-full">
+        <label>Tanggal Gajian (tiap bulan)</label>
+        <select id="fmTanggalGajian"></select>
+      </div>
+      <div class="field-full">
+        <label>Target Minimum Belanja Harian (Rp)</label>
+        <input type="text" inputmode="numeric" id="fmTargetMinimum" placeholder="50.000" oninput="formatRibuan(this)">
+      </div>
+      <div class="err-msg" id="pengaturanErr"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closePengaturanModal()">Batal</button>
+        <button class="btn btn-primary" id="btnSavePengaturan" onclick="submitPengaturan()">Simpan</button>
+      </div>
+    </div>
+  </div>
+</div>
+  
 <div id="toast-container"></div>
 
 <script>
@@ -736,7 +768,9 @@ function apiHandleResponse_(res){
       getKategoriList(){ wrap(apiGet_('getKategoriList')); },
       addTransaksi(payload){ wrap(apiPost_('addTransaksi', payload)); },
       updateTransaksi(payload){ wrap(apiPost_('updateTransaksi', payload)); },
-      deleteTransaksi(id){ wrap(apiPost_('deleteTransaksi', { id: id })); }
+      deleteTransaksi(id){ wrap(apiPost_('deleteTransaksi', { id: id })); },
+      getPengaturan(){ wrap(apiGet_('getPengaturan')); },
+      updatePengaturan(payload){ wrap(apiPost_('updatePengaturan', payload)); }
     };
   }
   window.google = window.google || {};
@@ -763,6 +797,97 @@ let charts = {};
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
 
+let PENGATURAN = { tanggalGajian: 25, targetMinimumHarian: 50000 };
+
+function getPeriodeGajian_(){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const tgl = PENGATURAN.tanggalGajian;
+  function buatTanggal(y, m){
+    const akhirBulan = new Date(y, m + 1, 0).getDate();
+    return new Date(y, m, Math.min(tgl, akhirBulan));
+  }
+  const gajianBulanIni = buatTanggal(today.getFullYear(), today.getMonth());
+  if (gajianBulanIni <= today){
+    const bln2 = today.getMonth() + 1, thn2 = today.getFullYear() + (bln2 > 11 ? 1 : 0);
+    return { berikutnya: buatTanggal(thn2, bln2 % 12), mulaiPeriode: gajianBulanIni };
+  }
+  const blnLalu = today.getMonth() - 1, thnLalu = today.getFullYear() - (blnLalu < 0 ? 1 : 0);
+  return { berikutnya: gajianBulanIni, mulaiPeriode: buatTanggal(thnLalu, (blnLalu + 12) % 12) };
+}
+
+function renderRunway(){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const { berikutnya, mulaiPeriode } = getPeriodeGajian_();
+  const sisaHari = Math.max(1, Math.ceil((berikutnya - today) / 86400000));
+
+  const saldoSekarang = DATA.reduce((s,t)=> s + (t.jenis==='Masuk' ? t.jumlah : -t.jumlah), 0);
+  const jatahHarianAman = saldoSekarang / sisaHari;
+
+  document.getElementById('runwayJatah').textContent = rupiah(Math.max(0, jatahHarianAman));
+  document.getElementById('runwaySub').textContent = sisaHari + ' hari lagi sampai gajian (tgl ' + PENGATURAN.tanggalGajian + ')';
+
+  const hariBerjalan = Math.max(1, Math.round((today - mulaiPeriode) / 86400000) + 1);
+  const pengeluaranPeriode = DATA
+    .filter(t => t.jenis === 'Keluar' && parseYMD(t.tanggal) >= mulaiPeriode && parseYMD(t.tanggal) <= today)
+    .reduce((s,t)=> s + t.jumlah, 0);
+  const anggaranIdeal = PENGATURAN.targetMinimumHarian * hariBerjalan;
+  const selisih = pengeluaranPeriode - anggaranIdeal;
+
+  const warnEl = document.getElementById('runwayWarning');
+  warnEl.style.display = 'block';
+  if (jatahHarianAman < PENGATURAN.targetMinimumHarian){
+    warnEl.style.background = 'rgba(255,120,80,.12)';
+    warnEl.style.color = '#ff8a65';
+    let msg = '⚠️ Jatah harian di bawah target minimum (' + rupiah(PENGATURAN.targetMinimumHarian) + ').';
+    if (selisih > 0){
+      const hariPuasa = Math.ceil(selisih / PENGATURAN.targetMinimumHarian);
+      msg += ' Sudah kelebihan belanja ' + rupiah(selisih) + ' dari target sejak periode gajian ini — sekitar <b>' + hariPuasa + ' hari</b> tanpa belanja untuk normal lagi.';
+    }
+    warnEl.innerHTML = msg;
+  } else {
+    warnEl.style.background = 'rgba(80,220,150,.12)';
+    warnEl.style.color = '#4ade80';
+    warnEl.textContent = '✅ Aman, masih di atas target minimum (' + rupiah(PENGATURAN.targetMinimumHarian) + '/hari).';
+  }
+}
+
+function openPengaturanModal(){
+  const sel = document.getElementById('fmTanggalGajian');
+  if (!sel.options.length){
+    for (let i=1;i<=31;i++){
+      const opt = document.createElement('option');
+      opt.value = i; opt.textContent = 'Tanggal ' + i;
+      sel.appendChild(opt);
+    }
+  }
+  sel.value = PENGATURAN.tanggalGajian;
+  document.getElementById('fmTargetMinimum').value = PENGATURAN.targetMinimumHarian.toLocaleString('id-ID');
+  document.getElementById('pengaturanErr').textContent = '';
+  document.getElementById('modalPengaturan').classList.add('show');
+}
+function closePengaturanModal(){
+  document.getElementById('modalPengaturan').classList.remove('show');
+}
+function submitPengaturan(){
+  const tanggalGajian = Number(document.getElementById('fmTanggalGajian').value);
+  const targetMinimumHarian = Number(document.getElementById('fmTargetMinimum').value.replace(/\D/g,'')) || 0;
+  const btn = document.getElementById('btnSavePengaturan');
+  btn.disabled = true; btn.textContent = 'Menyimpan...';
+  google.script.run
+    .withSuccessHandler(function(p){
+      PENGATURAN = p;
+      btn.disabled = false; btn.textContent = 'Simpan';
+      closePengaturanModal();
+      renderRunway();
+      showToast_('Pengaturan tersimpan', false);
+    })
+    .withFailureHandler(function(err){
+      btn.disabled = false; btn.textContent = 'Simpan';
+      document.getElementById('pengaturanErr').textContent = (err && err.message) || 'Gagal menyimpan.';
+    })
+    .updatePengaturan({ tanggalGajian: tanggalGajian, targetMinimumHarian: targetMinimumHarian });
+}
+  
 /* ==================== CHART.JS LOADER (dengan CDN cadangan) ==================== */
 const CHART_CDN_SOURCES = [
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js',
@@ -847,15 +972,21 @@ function refreshAll(showToast, isInitial){
       .getKategoriList();
   });
 
-  Promise.all([dataPromise, katPromise])
+  const pengaturanPromise = new Promise(function(resolve, reject){
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getPengaturan();
+  });
+
+  Promise.all([dataPromise, katPromise, pengaturanPromise])
     .then(function(results){
       DATA = computeSaldo(results[0]);
       KATEGORI = results[1];
       populateKategoriOptions();
       populateBulanOptions();
       applyFilters();
+      PENGATURAN = results[2];
       renderDashboard();
       renderRekap();
+      renderRunway();
       toggleTopLoading(false);
       if(isInitial) hideBootOverlay();
       if(showToast) showToast_('Data berhasil dimuat ulang', false);
