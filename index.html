@@ -701,8 +701,7 @@
 const APPS_SCRIPT_API_URL = 'https://script.google.com/macros/s/AKfycbzBxkzz7vN0FfotCmp056V5HK9P-guIllsxi-fdQptC9FVtTn6ixCHL7eAZ1sHBpVFt/exec';
 
 function apiGet_(action, params){
-  const qs = new URLSearchParams(Object.assign({ action: action }, params || {})).toString();
-  return fetch(APPS_SCRIPT_API_URL + '?' + qs).then(apiHandleResponse_);
+  return apiPost_(action, params || {});
 }
 function apiPost_(action, payload){
   // Sengaja pakai Content-Type: text/plain (bukan application/json) supaya
