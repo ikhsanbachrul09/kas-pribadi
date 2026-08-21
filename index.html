@@ -339,27 +339,54 @@
     }
     .modal-overlay.show .modal{transform:translateY(0);}
 
-    /* Tabel -> kartu (lebih mudah dibaca & di-tap di HP) */
+        /* Tabel -> list padat (2-3 baris per transaksi, bukan kartu tinggi) */
     .table-wrap{border:none; overflow:visible;}
     table{min-width:0;}
     thead{display:none;}
     tbody tr{
-      display:block; background:var(--panel-solid); border:1px solid var(--border-soft);
-      border-radius:12px; margin-bottom:10px; padding:4px 14px;
+      display:flex; flex-wrap:wrap; align-items:baseline;
+      background:var(--panel-solid); border:1px solid var(--border-soft);
+      border-radius:10px; margin-bottom:8px; padding:10px 12px; gap:2px 10px;
     }
     tbody tr:hover{background:var(--panel-solid);}
-    tbody td{
-      display:flex; justify-content:space-between; align-items:center; gap:14px;
-      padding:9px 0; border-bottom:1px solid #0e1e2b; font-size:13.5px;
+    tbody td{padding:0; border:none; font-size:13px;}
+    tbody td::before{content:none;}
+
+    /* Baris 1: Keterangan (kiri, bold, potong kalau kepanjangan) + Jumlah (kanan) */
+    #tblRecent tbody td:nth-of-type(2), #tblTransaksi tbody td:nth-of-type(2){
+      order:1; flex:1 1 auto; min-width:0; font-weight:600; color:var(--text-0);
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
     }
-    tbody tr td:last-child{border-bottom:none;}
-    tbody td::before{
-      content:attr(data-label); color:var(--text-2); font-size:11px; text-transform:uppercase;
-      letter-spacing:.5px; font-weight:600; flex-shrink:0;
+    #tblRecent tbody td:nth-of-type(5), #tblTransaksi tbody td:nth-of-type(5){
+      order:2; flex:0 0 auto; font-weight:700; font-size:13.5px;
     }
-    tbody td.td-actions{padding-top:11px;}
-    tbody td.td-actions::before{content:none;}
-    tbody td.td-actions .row-actions{width:100%; justify-content:flex-end;}
+
+    /* Baris 2: Tanggal · Kategori (kiri, kecil, abu-abu) */
+    #tblRecent tbody td:nth-of-type(1), #tblTransaksi tbody td:nth-of-type(1){
+      order:3; flex:0 0 auto; font-size:11.5px; color:var(--text-2);
+    }
+    #tblRecent tbody td:nth-of-type(1)::after, #tblTransaksi tbody td:nth-of-type(1)::after{
+      content:" · "; color:var(--text-2);
+    }
+    #tblRecent tbody td:nth-of-type(3), #tblTransaksi tbody td:nth-of-type(3){
+      order:4; flex:1 1 auto; min-width:0; font-size:11.5px; color:var(--text-2);
+    }
+    #tblRecent tbody td:nth-of-type(3) .tag, #tblTransaksi tbody td:nth-of-type(3) .tag{
+      background:none; padding:0; border:none; color:inherit; font-weight:500;
+    }
+
+    /* Sembunyikan kolom Jenis (sudah terwakili tanda +/- dan warna di Jumlah) */
+    #tblRecent tbody td:nth-of-type(4), #tblTransaksi tbody td:nth-of-type(4){display:none;}
+
+    /* Khusus halaman Transaksi: Saldo & tombol aksi jadi baris ke-3, ringkas */
+    #tblTransaksi tbody td:nth-of-type(6){
+      order:5; flex:1 1 auto; font-size:11px; color:var(--text-2);
+    }
+    #tblTransaksi tbody td:nth-of-type(6)::before{content:"Saldo: ";}
+    #tblTransaksi tbody td.td-actions{
+      order:6; flex:0 0 auto; margin-left:auto; padding-top:2px;
+    }
+    #tblTransaksi tbody td.td-actions .row-actions{width:auto; justify-content:flex-end;}
   }
   @media (max-width:480px){
     .grid-cards{grid-template-columns:1fr;}
