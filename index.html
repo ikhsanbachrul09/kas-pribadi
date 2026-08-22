@@ -516,9 +516,9 @@
             <div class="delta" id="cardKeluarDelta">vs bulan lalu</div>
           </div>
           <div class="card">
-            <div class="top-row"><span class="lbl">Selisih Bulan Ini</span><div class="icon trend">⚡</div></div>
-            <div class="num" id="cardNetBulan">Rp 0</div>
-            <div class="delta" id="cardNetSub">Pemasukan − Pengeluaran</div>
+            <div class="top-row"><span class="lbl">Biaya Admin Bulan Ini</span><div class="icon trend">🏦</div></div>
+            <div class="num" id="cardAdminBulan">Rp 0</div>
+            <div class="delta" id="cardAdminSub">Total potongan "ad" bulan ini</div>
           </div>
         </div>
 
@@ -1478,7 +1478,10 @@ function renderDashboard(){
 
   document.getElementById('cardMasukBulan').textContent = rupiah(masukCur);
   document.getElementById('cardKeluarBulan').textContent = rupiah(keluarCur);
-  document.getElementById('cardNetBulan').textContent = rupiah(masukCur - keluarCur);
+  const adminTx = curTx.filter(t => t.keterangan.trim().toLowerCase() === 'ad');
+  const adminCur = adminTx.reduce((s,t)=>s+t.jumlah,0);
+  document.getElementById('cardAdminBulan').textContent = rupiah(adminCur);
+  document.getElementById('cardAdminSub').textContent = adminTx.length + ' transaksi bulan ini';
 
   setDelta('cardMasukDelta', masukCur, masukPrev, true);
   setDelta('cardKeluarDelta', keluarCur, keluarPrev, false);
