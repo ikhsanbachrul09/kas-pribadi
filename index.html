@@ -872,7 +872,7 @@ function apiHandleResponse_(res){
       updateTransaksi(payload){ wrap(apiPost_('updateTransaksi', payload)); },
       deleteTransaksi(id){ wrap(apiPost_('deleteTransaksi', { id: id })); },
       getPengaturan(){ wrap(apiGet_('getPengaturan')); },
-      updatePengaturan(payload){ wrap(apiPost_('updatePengaturan', payload)); }
+      updatePengaturan(payload){ wrap(apiPost_('updatePengaturan', payload)); },
       getTagihanList(){ wrap(apiGet_('getTagihanList')); },
       addTagihan(payload){ wrap(apiPost_('addTagihan', payload)); },
       deleteTagihan(id){ wrap(apiPost_('deleteTagihan', { id: id })); },
@@ -1274,7 +1274,7 @@ function refreshAll(showToast, isInitial){
     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getTabunganList();
   });
 
-  Promise.all([dataPromise, katPromise, pengaturanPromise])
+    Promise.all([dataPromise, katPromise, pengaturanPromise, tagihanPromise, tabunganPromise])
     .then(function(results){
       DATA = computeSaldo(results[0]);
       KATEGORI = results[1];
@@ -1282,12 +1282,14 @@ function refreshAll(showToast, isInitial){
       populateBulanOptions();
       applyFilters();
       PENGATURAN = results[2];
+      TAGIHAN = results[3];
+      TABUNGAN = results[4];
       renderDashboard();
       renderRekap();
       renderRunway();
+      renderTagihan();
+      renderTabungan();
       toggleTopLoading(false);
-      TAGIHAN = results[3];
-      TABUNGAN = results[4];
       if(isInitial) hideBootOverlay();
       if(showToast) showToast_('Data berhasil dimuat ulang', false);
     })
