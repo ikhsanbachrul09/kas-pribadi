@@ -110,7 +110,7 @@
 
   #sidebar-overlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:35;}
 
-  /* ---------- MAIN ----------- */
+  /* ---------- MAIN ---------- */
   main{flex:1; margin-left:240px; min-height:100vh; display:flex; flex-direction:column;}
 
   #topbar{
@@ -203,7 +203,7 @@
   /* ---------- Progress Bar ---------- */
   .progress-bar{width:100%; height:8px; border-radius:6px; background:#0e2233; overflow:hidden; margin-top:6px;}
   .progress-bar-fill{height:100%; background:linear-gradient(90deg,var(--green),var(--cyan)); border-radius:6px;}
-  
+
   /* ---------- TABLE ---------- */
   .table-wrap{overflow-x:auto; border-radius:12px; border:1px solid var(--border-soft);}
   table{width:100%; border-collapse:collapse; min-width:720px;}
@@ -343,7 +343,7 @@
     }
     .modal-overlay.show .modal{transform:translateY(0);}
 
-        /* Tabel -> list padat (2-3 baris per transaksi, bukan kartu tinggi) */
+    /* Tabel -> list padat (2-3 baris per transaksi, bukan kartu tinggi) */
     .table-wrap{border:none; overflow:visible;}
     table{min-width:0;}
     thead{display:none;}
@@ -547,7 +547,7 @@
   </div>
   <div id="tabunganBody"><div class="delta">Memuat...</div></div>
 </div>
-        
+
         <div class="row-2col">
           <div class="panel">
             <div class="panel-head">
@@ -820,7 +820,7 @@
     </div>
   </div>
 </div>
-  
+
 <div id="toast-container"></div>
 
 <script>
@@ -875,10 +875,12 @@ function apiHandleResponse_(res){
       updatePengaturan(payload){ wrap(apiPost_('updatePengaturan', payload)); },
       getTagihanList(){ wrap(apiGet_('getTagihanList')); },
       addTagihan(payload){ wrap(apiPost_('addTagihan', payload)); },
+      updateTagihan(payload){ wrap(apiPost_('updateTagihan', payload)); },
       deleteTagihan(id){ wrap(apiPost_('deleteTagihan', { id: id })); },
       bayarTagihan(payload){ wrap(apiPost_('bayarTagihan', payload)); },
       getTabunganList(){ wrap(apiGet_('getTabunganList')); },
       addTabungan(payload){ wrap(apiPost_('addTabungan', payload)); },
+      updateTabungan(payload){ wrap(apiPost_('updateTabungan', payload)); },
       deleteTabungan(id){ wrap(apiPost_('deleteTabungan', { id: id })); },
       setorTabungan(payload){ wrap(apiPost_('setorTabungan', payload)); },
       tarikTabungan(payload){ wrap(apiPost_('tarikTabungan', payload)); }
@@ -1038,22 +1040,54 @@ function renderTabungan(){
   }).join('');
 }
 
+let editingTagihanId = null;
+
 function openTagihanModal(){
   const sel = document.getElementById('fmTagihanTanggal');
   if (!sel.options.length){ for (let i=1;i<=31;i++){ const o=document.createElement('option'); o.value=i; o.textContent='Tanggal '+i; sel.appendChild(o); } }
   renderTagihanListManage_();
-  document.getElementById('fmTagihanNama').value=''; document.getElementById('fmTagihanJumlah').value='';
-  document.getElementById('tagihanErr').textContent='';
+  resetFormTagihan_();
   document.getElementById('modalTagihan').classList.add('show');
 }
 function closeTagihanModal(){ document.getElementById('modalTagihan').classList.remove('show'); }
+function resetFormTagihan_(){
+  editingTagihanId = null;
+  document.getElementById('fmTagihanNama').value='';
+  document.getElementById('fmTagihanJumlah').value='';
+  document.getElementById('fmTagihanTanggal').value='1';
+  document.getElementById('tagihanErr').textContent='';
+  document.getElementById('btnAddTagihan').textContent='Tambah Tagihan';
+  const cancelEl = document.getElementById('tagihanCancelEdit');
+  if(cancelEl) cancelEl.remove();
+}
 function renderTagihanListManage_(){
   const wrap = document.getElementById('tagihanListWrap');
   wrap.innerHTML = TAGIHAN.length ? TAGIHAN.map(t => `
     <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:13px;">
       <span>${escapeHtml(t.nama)} — ${rupiah(t.jumlah)} (tgl ${t.tglJatuhTempo})</span>
-      <button class="icon-btn" onclick="hapusTagihan(${t.id})" title="Hapus">🗑️</button>
+      <div style="display:flex; gap:6px;">
+        <button class="icon-btn" onclick="editTagihan(${t.id})" title="Edit">✎</button>
+        <button class="icon-btn del" onclick="hapusTagihan(${t.id})" title="Hapus">🗑️</button>
+      </div>
     </div>`).join('') : '<div class="delta">Belum ada tagihan.</div>';
+}
+function editTagihan(id){
+  const t = TAGIHAN.find(x => x.id === id);
+  if (!t) return;
+  editingTagihanId = id;
+  document.getElementById('fmTagihanNama').value = t.nama;
+  document.getElementById('fmTagihanJumlah').value = Number(t.jumlah).toLocaleString('id-ID');
+  document.getElementById('fmTagihanTanggal').value = t.tglJatuhTempo;
+  document.getElementById('tagihanErr').textContent = '';
+  document.getElementById('btnAddTagihan').textContent = 'Simpan Perubahan';
+  if(!document.getElementById('tagihanCancelEdit')){
+    const cancel = document.createElement('div');
+    cancel.id = 'tagihanCancelEdit';
+    cancel.style.cssText = 'font-size:12px; color:var(--cyan-2); cursor:pointer; text-align:center;';
+    cancel.textContent = 'Batal edit, tambah baru';
+    cancel.onclick = resetFormTagihan_;
+    document.getElementById('btnAddTagihan').insertAdjacentElement('afterend', cancel);
+  }
 }
 function submitTagihan(){
   const nama = document.getElementById('fmTagihanNama').value.trim();
@@ -1062,38 +1096,85 @@ function submitTagihan(){
   if (!nama){ document.getElementById('tagihanErr').textContent='Nama wajib diisi'; return; }
   if (!jumlah){ document.getElementById('tagihanErr').textContent='Jumlah wajib diisi'; return; }
   const btn = document.getElementById('btnAddTagihan');
-  btn.disabled=true; btn.textContent='Menyimpan...';
-  google.script.run
+  const btnLabelBusy = editingTagihanId ? 'Menyimpan...' : 'Menyimpan...';
+  const btnLabelIdle = editingTagihanId ? 'Simpan Perubahan' : 'Tambah Tagihan';
+  btn.disabled=true; btn.textContent=btnLabelBusy;
+
+  const runner = google.script.run
     .withSuccessHandler(function(t){
-      TAGIHAN.push(t); btn.disabled=false; btn.textContent='Tambah Tagihan';
-      document.getElementById('fmTagihanNama').value=''; document.getElementById('fmTagihanJumlah').value='';
+      if (editingTagihanId){
+        TAGIHAN = TAGIHAN.map(x => x.id === t.id ? t : x);
+      } else {
+        TAGIHAN.push(t);
+      }
+      btn.disabled=false;
+      resetFormTagihan_();
       renderTagihanListManage_(); renderTagihan();
     })
-    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent='Tambah Tagihan'; document.getElementById('tagihanErr').textContent=(err&&err.message)||'Gagal menyimpan'; })
-    .addTagihan({ nama: nama, jumlah: jumlah, tglJatuhTempo: tgl });
+    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent=btnLabelIdle; document.getElementById('tagihanErr').textContent=(err&&err.message)||'Gagal menyimpan'; });
+
+  if (editingTagihanId){
+    runner.updateTagihan({ id: editingTagihanId, nama: nama, jumlah: jumlah, tglJatuhTempo: tgl });
+  } else {
+    runner.addTagihan({ nama: nama, jumlah: jumlah, tglJatuhTempo: tgl });
+  }
 }
 function hapusTagihan(id){
   if (!confirm('Hapus tagihan ini?')) return;
   google.script.run
-    .withSuccessHandler(function(){ TAGIHAN = TAGIHAN.filter(t=>t.id!==id); renderTagihanListManage_(); renderTagihan(); showToast_('Tagihan dihapus', false); })
+    .withSuccessHandler(function(){
+      TAGIHAN = TAGIHAN.filter(t=>t.id!==id);
+      if (editingTagihanId === id) resetFormTagihan_();
+      renderTagihanListManage_(); renderTagihan(); showToast_('Tagihan dihapus', false);
+    })
     .withFailureHandler(function(err){ showToast_((err&&err.message)||'Gagal menghapus', true); })
     .deleteTagihan(id);
 }
 
+let editingTabunganId = null;
+
 function openTabunganModal(){
   renderTabunganListManage_();
-  document.getElementById('fmTabunganNama').value=''; document.getElementById('fmTabunganTarget').value='';
-  document.getElementById('tabunganErr').textContent='';
+  resetFormTabungan_();
   document.getElementById('modalTabungan').classList.add('show');
 }
 function closeTabunganModal(){ document.getElementById('modalTabungan').classList.remove('show'); }
+function resetFormTabungan_(){
+  editingTabunganId = null;
+  document.getElementById('fmTabunganNama').value='';
+  document.getElementById('fmTabunganTarget').value='';
+  document.getElementById('tabunganErr').textContent='';
+  document.getElementById('btnAddTabungan').textContent='Tambah Target';
+  const cancelEl = document.getElementById('tabunganCancelEdit');
+  if(cancelEl) cancelEl.remove();
+}
 function renderTabunganListManage_(){
   const wrap = document.getElementById('tabunganListWrap');
   wrap.innerHTML = TABUNGAN.length ? TABUNGAN.map(t => `
     <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:13px;">
       <span>${escapeHtml(t.nama)} — ${rupiah(t.terkumpul)} / ${rupiah(t.target)}</span>
-      <button class="icon-btn" onclick="hapusTabungan(${t.id})" title="Hapus">🗑️</button>
+      <div style="display:flex; gap:6px;">
+        <button class="icon-btn" onclick="editTabungan(${t.id})" title="Edit">✎</button>
+        <button class="icon-btn del" onclick="hapusTabungan(${t.id})" title="Hapus">🗑️</button>
+      </div>
     </div>`).join('') : '<div class="delta">Belum ada target tabungan.</div>';
+}
+function editTabungan(id){
+  const t = TABUNGAN.find(x => x.id === id);
+  if (!t) return;
+  editingTabunganId = id;
+  document.getElementById('fmTabunganNama').value = t.nama;
+  document.getElementById('fmTabunganTarget').value = Number(t.target).toLocaleString('id-ID');
+  document.getElementById('tabunganErr').textContent = '';
+  document.getElementById('btnAddTabungan').textContent = 'Simpan Perubahan';
+  if(!document.getElementById('tabunganCancelEdit')){
+    const cancel = document.createElement('div');
+    cancel.id = 'tabunganCancelEdit';
+    cancel.style.cssText = 'font-size:12px; color:var(--cyan-2); cursor:pointer; text-align:center;';
+    cancel.textContent = 'Batal edit, tambah baru';
+    cancel.onclick = resetFormTabungan_;
+    document.getElementById('btnAddTabungan').insertAdjacentElement('afterend', cancel);
+  }
 }
 function submitTabungan(){
   const nama = document.getElementById('fmTabunganNama').value.trim();
@@ -1101,20 +1182,36 @@ function submitTabungan(){
   if (!nama){ document.getElementById('tabunganErr').textContent='Nama wajib diisi'; return; }
   if (!target){ document.getElementById('tabunganErr').textContent='Target wajib diisi'; return; }
   const btn = document.getElementById('btnAddTabungan');
+  const btnLabelIdle = editingTabunganId ? 'Simpan Perubahan' : 'Tambah Target';
   btn.disabled=true; btn.textContent='Menyimpan...';
-  google.script.run
+
+  const runner = google.script.run
     .withSuccessHandler(function(t){
-      TABUNGAN.push(t); btn.disabled=false; btn.textContent='Tambah Target';
-      document.getElementById('fmTabunganNama').value=''; document.getElementById('fmTabunganTarget').value='';
+      if (editingTabunganId){
+        TABUNGAN = TABUNGAN.map(x => x.id === t.id ? t : x);
+      } else {
+        TABUNGAN.push(t);
+      }
+      btn.disabled=false;
+      resetFormTabungan_();
       renderTabunganListManage_(); renderTabungan();
     })
-    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent='Tambah Target'; document.getElementById('tabunganErr').textContent=(err&&err.message)||'Gagal menyimpan'; })
-    .addTabungan({ nama: nama, target: target });
+    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent=btnLabelIdle; document.getElementById('tabunganErr').textContent=(err&&err.message)||'Gagal menyimpan'; });
+
+  if (editingTabunganId){
+    runner.updateTabungan({ id: editingTabunganId, nama: nama, target: target });
+  } else {
+    runner.addTabungan({ nama: nama, target: target });
+  }
 }
 function hapusTabungan(id){
   if (!confirm('Hapus target tabungan ini?')) return;
   google.script.run
-    .withSuccessHandler(function(){ TABUNGAN = TABUNGAN.filter(t=>t.id!==id); renderTabunganListManage_(); renderTabungan(); showToast_('Target dihapus', false); })
+    .withSuccessHandler(function(){
+      TABUNGAN = TABUNGAN.filter(t=>t.id!==id);
+      if (editingTabunganId === id) resetFormTabungan_();
+      renderTabunganListManage_(); renderTabungan(); showToast_('Target dihapus', false);
+    })
     .withFailureHandler(function(err){ showToast_((err&&err.message)||'Gagal menghapus', true); })
     .deleteTabungan(id);
 }
@@ -1139,7 +1236,7 @@ function submitSetorTarik(){
   if (tipe === 'setor') runner.setorTabungan({ id: id, jumlah: jumlah });
   else runner.tarikTabungan({ id: id, jumlah: jumlah });
 }
-  
+
 function openPengaturanModal(){
   const sel = document.getElementById('fmTanggalGajian');
   if (!sel.options.length){
@@ -1178,7 +1275,7 @@ function submitPengaturan(){
     })
     .updatePengaturan({ tanggalGajian: tanggalGajian, targetMinimumHarian: targetMinimumHarian });
 }
-  
+
 /* ==================== CHART.JS LOADER (dengan CDN cadangan) ==================== */
 const CHART_CDN_SOURCES = [
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js',
@@ -1262,11 +1359,9 @@ function refreshAll(showToast, isInitial){
       .withFailureHandler(reject)
       .getKategoriList();
   });
-
   const pengaturanPromise = new Promise(function(resolve, reject){
     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getPengaturan();
   });
-
   const tagihanPromise = new Promise(function(resolve, reject){
     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getTagihanList();
   });
@@ -1274,16 +1369,16 @@ function refreshAll(showToast, isInitial){
     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getTabunganList();
   });
 
-    Promise.all([dataPromise, katPromise, pengaturanPromise, tagihanPromise, tabunganPromise])
+  Promise.all([dataPromise, katPromise, pengaturanPromise, tagihanPromise, tabunganPromise])
     .then(function(results){
       DATA = computeSaldo(results[0]);
       KATEGORI = results[1];
-      populateKategoriOptions();
-      populateBulanOptions();
-      applyFilters();
       PENGATURAN = results[2];
       TAGIHAN = results[3];
       TABUNGAN = results[4];
+      populateKategoriOptions();
+      populateBulanOptions();
+      applyFilters();
       renderDashboard();
       renderRekap();
       renderRunway();
