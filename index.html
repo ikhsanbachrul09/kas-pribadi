@@ -200,6 +200,10 @@
   }
   .seg button.active{background:linear-gradient(135deg,var(--green),var(--blue)); color:#01130f;}
 
+  /* ---------- Progress Bar ---------- */
+  .progress-bar{width:100%; height:8px; border-radius:6px; background:#0e2233; overflow:hidden; margin-top:6px;}
+  .progress-bar-fill{height:100%; background:linear-gradient(90deg,var(--green),var(--cyan)); border-radius:6px;}
+  
   /* ---------- TABLE ---------- */
   .table-wrap{overflow-x:auto; border-radius:12px; border:1px solid var(--border-soft);}
   table{width:100%; border-collapse:collapse; min-width:720px;}
@@ -527,6 +531,22 @@
           <div class="delta" id="runwaySub">boleh dibelanjakan hari ini</div>
           <div id="runwayWarning" style="display:none; margin-top:12px; padding:10px 14px; border-radius:10px; font-size:13px; line-height:1.5;"></div>
           </div>
+
+        <div class="panel" id="panelTagihan">
+  <div class="panel-head">
+    <h3>📅 Tagihan Mendatang</h3>
+    <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openTagihanModal()">⚙️ Kelola</span>
+  </div>
+  <div id="tagihanBody"><div class="delta">Memuat...</div></div>
+</div>
+
+<div class="panel" id="panelTabungan">
+  <div class="panel-head">
+    <h3>🎯 Target Tabungan</h3>
+    <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openTabunganModal()">⚙️ Kelola</span>
+  </div>
+  <div id="tabunganBody"><div class="delta">Memuat...</div></div>
+</div>
         
         <div class="row-2col">
           <div class="panel">
@@ -745,6 +765,61 @@
     </div>
   </div>
 </div>
+
+<div class="modal-overlay" id="modalTagihan">
+  <div class="modal" style="max-width:460px;">
+    <h3>📅 Kelola Tagihan Rutin</h3>
+    <div class="modal-sub">Tagihan bulanan yang rutin muncul (listrik, internet, cicilan, dll).</div>
+    <div id="tagihanListWrap" style="max-height:240px; overflow:auto; margin:12px 0;"></div>
+    <div class="form-grid">
+      <div class="field-full"><label>Nama Tagihan</label>
+        <input type="text" id="fmTagihanNama" placeholder="mis. Internet Indihome"></div>
+      <div class="field-full"><label>Jumlah (Rp)</label>
+        <input type="text" inputmode="numeric" id="fmTagihanJumlah" placeholder="350.000" oninput="formatRibuan(this)"></div>
+      <div class="field-full"><label>Jatuh Tempo (tanggal tiap bulan)</label>
+        <select id="fmTagihanTanggal"></select></div>
+      <div class="err-msg" id="tagihanErr"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeTagihanModal()">Tutup</button>
+        <button class="btn btn-primary" id="btnAddTagihan" onclick="submitTagihan()">Tambah Tagihan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalTabungan">
+  <div class="modal" style="max-width:460px;">
+    <h3>🎯 Kelola Target Tabungan</h3>
+    <div class="modal-sub">Pos tabungan terpisah dari kas harian.</div>
+    <div id="tabunganListWrap" style="max-height:240px; overflow:auto; margin:12px 0;"></div>
+    <div class="form-grid">
+      <div class="field-full"><label>Nama Target</label>
+        <input type="text" id="fmTabunganNama" placeholder="mis. Laptop Baru"></div>
+      <div class="field-full"><label>Target Jumlah (Rp)</label>
+        <input type="text" inputmode="numeric" id="fmTabunganTarget" placeholder="5.000.000" oninput="formatRibuan(this)"></div>
+      <div class="err-msg" id="tabunganErr"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeTabunganModal()">Tutup</button>
+        <button class="btn btn-primary" id="btnAddTabungan" onclick="submitTabungan()">Tambah Target</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalSetorTarik">
+  <div class="modal" style="max-width:360px;">
+    <h3 id="setorTarikTitle">Setor Tabungan</h3>
+    <div class="form-grid">
+      <div class="field-full"><label>Jumlah (Rp)</label>
+        <input type="text" inputmode="numeric" id="fmSetorTarikJumlah" placeholder="100.000" oninput="formatRibuan(this)"></div>
+      <div class="err-msg" id="setorTarikErr"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeSetorTarikModal()">Batal</button>
+        <button class="btn btn-primary" id="btnSetorTarik" onclick="submitSetorTarik()">Simpan</button>
+      </div>
+    </div>
+  </div>
+</div>
   
 <div id="toast-container"></div>
 
@@ -798,6 +873,15 @@ function apiHandleResponse_(res){
       deleteTransaksi(id){ wrap(apiPost_('deleteTransaksi', { id: id })); },
       getPengaturan(){ wrap(apiGet_('getPengaturan')); },
       updatePengaturan(payload){ wrap(apiPost_('updatePengaturan', payload)); }
+      getTagihanList(){ wrap(apiGet_('getTagihanList')); },
+      addTagihan(payload){ wrap(apiPost_('addTagihan', payload)); },
+      deleteTagihan(id){ wrap(apiPost_('deleteTagihan', { id: id })); },
+      bayarTagihan(payload){ wrap(apiPost_('bayarTagihan', payload)); },
+      getTabunganList(){ wrap(apiGet_('getTabunganList')); },
+      addTabungan(payload){ wrap(apiPost_('addTabungan', payload)); },
+      deleteTabungan(id){ wrap(apiPost_('deleteTabungan', { id: id })); },
+      setorTabungan(payload){ wrap(apiPost_('setorTabungan', payload)); },
+      tarikTabungan(payload){ wrap(apiPost_('tarikTabungan', payload)); }
     };
   }
   window.google = window.google || {};
@@ -821,6 +905,8 @@ let editingId = null;
 let deletingId = null;
 let formJenis = 'Keluar';
 let charts = {};
+let TAGIHAN = [];
+let TABUNGAN = [];
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
 
@@ -882,6 +968,178 @@ function renderRunway(){
   }
 }
 
+function hariJatuhTempoBerikutnya_(tglBulan){
+  const today = new Date(); today.setHours(0,0,0,0);
+  function buatTanggal(y,m){
+    const akhirBulan = new Date(y, m+1, 0).getDate();
+    return new Date(y, m, Math.min(tglBulan, akhirBulan));
+  }
+  let jt = buatTanggal(today.getFullYear(), today.getMonth());
+  if (jt < today){
+    const bln2 = today.getMonth()+1, thn2 = today.getFullYear() + (bln2>11?1:0);
+    jt = buatTanggal(thn2, bln2 % 12);
+  }
+  return jt;
+}
+
+function renderTagihan(){
+  const body = document.getElementById('tagihanBody');
+  const aktif = TAGIHAN.filter(t => t.aktif);
+  if (!aktif.length){ body.innerHTML = '<div class="delta">Belum ada tagihan rutin. Klik "Kelola" untuk menambah.</div>'; return; }
+  const today = new Date(); today.setHours(0,0,0,0);
+  const withDue = aktif.map(t => {
+    const jt = hariJatuhTempoBerikutnya_(t.tglJatuhTempo);
+    return Object.assign({}, t, { sisaHari: Math.round((jt - today) / 86400000) });
+  }).sort((a,b) => a.sisaHari - b.sisaHari);
+
+  body.innerHTML = withDue.map(t => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid #0e1e2b;">
+      <div>
+        <div style="font-weight:600; font-size:13.5px;">${escapeHtml(t.nama)}</div>
+        <div style="font-size:11.5px; color:${t.sisaHari<=3?'#ff8a65':'var(--text-2)'};">
+          ${t.sisaHari<=0 ? 'Jatuh tempo hari ini/lewat' : t.sisaHari+' hari lagi'} · tgl ${t.tglJatuhTempo}
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-weight:700; font-size:13.5px;">${rupiah(t.jumlah)}</div>
+        <button class="btn btn-sm btn-primary" style="margin-top:4px;" onclick="tandaiLunas(${t.id})">Tandai Lunas</button>
+      </div>
+    </div>`).join('');
+}
+
+function tandaiLunas(id){
+  if (!confirm('Tandai tagihan ini sudah dibayar? Transaksi pengeluaran akan otomatis dicatat.')) return;
+  google.script.run
+    .withSuccessHandler(function(){ showToast_('Tagihan dicatat sebagai pengeluaran', false); refreshAll(); })
+    .withFailureHandler(function(err){ showToast_((err && err.message) || 'Gagal mencatat pembayaran', true); })
+    .bayarTagihan({ id: id });
+}
+
+function renderTabungan(){
+  const body = document.getElementById('tabunganBody');
+  if (!TABUNGAN.length){ body.innerHTML = '<div class="delta">Belum ada target tabungan. Klik "Kelola" untuk menambah.</div>'; return; }
+  body.innerHTML = TABUNGAN.map(t => {
+    const pct = Math.min(100, Math.round((t.terkumpul / t.target) * 100));
+    return `
+    <div style="padding:10px 0; border-bottom:1px solid #0e1e2b;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-weight:600; font-size:13.5px;">${escapeHtml(t.nama)} ${t.status==='Selesai'?'✅':''}</div>
+        <div style="font-size:12px; color:var(--text-2);">${pct}%</div>
+      </div>
+      <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%;"></div></div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+        <div style="font-size:12px; color:var(--text-2);">${rupiah(t.terkumpul)} / ${rupiah(t.target)}</div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-sm btn-ghost" onclick="openSetorTarikModal(${t.id}, 'setor')">Setor</button>
+          <button class="btn btn-sm btn-ghost" onclick="openSetorTarikModal(${t.id}, 'tarik')">Tarik</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openTagihanModal(){
+  const sel = document.getElementById('fmTagihanTanggal');
+  if (!sel.options.length){ for (let i=1;i<=31;i++){ const o=document.createElement('option'); o.value=i; o.textContent='Tanggal '+i; sel.appendChild(o); } }
+  renderTagihanListManage_();
+  document.getElementById('fmTagihanNama').value=''; document.getElementById('fmTagihanJumlah').value='';
+  document.getElementById('tagihanErr').textContent='';
+  document.getElementById('modalTagihan').classList.add('show');
+}
+function closeTagihanModal(){ document.getElementById('modalTagihan').classList.remove('show'); }
+function renderTagihanListManage_(){
+  const wrap = document.getElementById('tagihanListWrap');
+  wrap.innerHTML = TAGIHAN.length ? TAGIHAN.map(t => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:13px;">
+      <span>${escapeHtml(t.nama)} — ${rupiah(t.jumlah)} (tgl ${t.tglJatuhTempo})</span>
+      <button class="icon-btn" onclick="hapusTagihan(${t.id})" title="Hapus">🗑️</button>
+    </div>`).join('') : '<div class="delta">Belum ada tagihan.</div>';
+}
+function submitTagihan(){
+  const nama = document.getElementById('fmTagihanNama').value.trim();
+  const jumlah = Number(document.getElementById('fmTagihanJumlah').value.replace(/\D/g,''));
+  const tgl = Number(document.getElementById('fmTagihanTanggal').value);
+  if (!nama){ document.getElementById('tagihanErr').textContent='Nama wajib diisi'; return; }
+  if (!jumlah){ document.getElementById('tagihanErr').textContent='Jumlah wajib diisi'; return; }
+  const btn = document.getElementById('btnAddTagihan');
+  btn.disabled=true; btn.textContent='Menyimpan...';
+  google.script.run
+    .withSuccessHandler(function(t){
+      TAGIHAN.push(t); btn.disabled=false; btn.textContent='Tambah Tagihan';
+      document.getElementById('fmTagihanNama').value=''; document.getElementById('fmTagihanJumlah').value='';
+      renderTagihanListManage_(); renderTagihan();
+    })
+    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent='Tambah Tagihan'; document.getElementById('tagihanErr').textContent=(err&&err.message)||'Gagal menyimpan'; })
+    .addTagihan({ nama: nama, jumlah: jumlah, tglJatuhTempo: tgl });
+}
+function hapusTagihan(id){
+  if (!confirm('Hapus tagihan ini?')) return;
+  google.script.run
+    .withSuccessHandler(function(){ TAGIHAN = TAGIHAN.filter(t=>t.id!==id); renderTagihanListManage_(); renderTagihan(); showToast_('Tagihan dihapus', false); })
+    .withFailureHandler(function(err){ showToast_((err&&err.message)||'Gagal menghapus', true); })
+    .deleteTagihan(id);
+}
+
+function openTabunganModal(){
+  renderTabunganListManage_();
+  document.getElementById('fmTabunganNama').value=''; document.getElementById('fmTabunganTarget').value='';
+  document.getElementById('tabunganErr').textContent='';
+  document.getElementById('modalTabungan').classList.add('show');
+}
+function closeTabunganModal(){ document.getElementById('modalTabungan').classList.remove('show'); }
+function renderTabunganListManage_(){
+  const wrap = document.getElementById('tabunganListWrap');
+  wrap.innerHTML = TABUNGAN.length ? TABUNGAN.map(t => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:13px;">
+      <span>${escapeHtml(t.nama)} — ${rupiah(t.terkumpul)} / ${rupiah(t.target)}</span>
+      <button class="icon-btn" onclick="hapusTabungan(${t.id})" title="Hapus">🗑️</button>
+    </div>`).join('') : '<div class="delta">Belum ada target tabungan.</div>';
+}
+function submitTabungan(){
+  const nama = document.getElementById('fmTabunganNama').value.trim();
+  const target = Number(document.getElementById('fmTabunganTarget').value.replace(/\D/g,''));
+  if (!nama){ document.getElementById('tabunganErr').textContent='Nama wajib diisi'; return; }
+  if (!target){ document.getElementById('tabunganErr').textContent='Target wajib diisi'; return; }
+  const btn = document.getElementById('btnAddTabungan');
+  btn.disabled=true; btn.textContent='Menyimpan...';
+  google.script.run
+    .withSuccessHandler(function(t){
+      TABUNGAN.push(t); btn.disabled=false; btn.textContent='Tambah Target';
+      document.getElementById('fmTabunganNama').value=''; document.getElementById('fmTabunganTarget').value='';
+      renderTabunganListManage_(); renderTabungan();
+    })
+    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent='Tambah Target'; document.getElementById('tabunganErr').textContent=(err&&err.message)||'Gagal menyimpan'; })
+    .addTabungan({ nama: nama, target: target });
+}
+function hapusTabungan(id){
+  if (!confirm('Hapus target tabungan ini?')) return;
+  google.script.run
+    .withSuccessHandler(function(){ TABUNGAN = TABUNGAN.filter(t=>t.id!==id); renderTabunganListManage_(); renderTabungan(); showToast_('Target dihapus', false); })
+    .withFailureHandler(function(err){ showToast_((err&&err.message)||'Gagal menghapus', true); })
+    .deleteTabungan(id);
+}
+
+let _setorTarikTarget = null;
+function openSetorTarikModal(id, tipe){
+  _setorTarikTarget = { id: id, tipe: tipe };
+  document.getElementById('setorTarikTitle').textContent = tipe==='setor' ? 'Setor Tabungan' : 'Tarik Tabungan';
+  document.getElementById('fmSetorTarikJumlah').value=''; document.getElementById('setorTarikErr').textContent='';
+  document.getElementById('modalSetorTarik').classList.add('show');
+}
+function closeSetorTarikModal(){ document.getElementById('modalSetorTarik').classList.remove('show'); }
+function submitSetorTarik(){
+  const jumlah = Number(document.getElementById('fmSetorTarikJumlah').value.replace(/\D/g,''));
+  if (!jumlah){ document.getElementById('setorTarikErr').textContent='Jumlah wajib diisi'; return; }
+  const { id, tipe } = _setorTarikTarget;
+  const btn = document.getElementById('btnSetorTarik');
+  btn.disabled=true; btn.textContent='Menyimpan...';
+  const runner = google.script.run
+    .withSuccessHandler(function(){ btn.disabled=false; btn.textContent='Simpan'; closeSetorTarikModal(); showToast_('Berhasil disimpan', false); refreshAll(); })
+    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent='Simpan'; document.getElementById('setorTarikErr').textContent=(err&&err.message)||'Gagal menyimpan'; });
+  if (tipe === 'setor') runner.setorTabungan({ id: id, jumlah: jumlah });
+  else runner.tarikTabungan({ id: id, jumlah: jumlah });
+}
+  
 function openPengaturanModal(){
   const sel = document.getElementById('fmTanggalGajian');
   if (!sel.options.length){
@@ -910,6 +1168,8 @@ function submitPengaturan(){
       btn.disabled = false; btn.textContent = 'Simpan';
       closePengaturanModal();
       renderRunway();
+      renderTagihan();
+      renderTabungan();
       showToast_('Pengaturan tersimpan', false);
     })
     .withFailureHandler(function(err){
@@ -1007,6 +1267,13 @@ function refreshAll(showToast, isInitial){
     google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getPengaturan();
   });
 
+  const tagihanPromise = new Promise(function(resolve, reject){
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getTagihanList();
+  });
+  const tabunganPromise = new Promise(function(resolve, reject){
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getTabunganList();
+  });
+
   Promise.all([dataPromise, katPromise, pengaturanPromise])
     .then(function(results){
       DATA = computeSaldo(results[0]);
@@ -1019,6 +1286,8 @@ function refreshAll(showToast, isInitial){
       renderRekap();
       renderRunway();
       toggleTopLoading(false);
+      TAGIHAN = results[3];
+      TABUNGAN = results[4];
       if(isInitial) hideBootOverlay();
       if(showToast) showToast_('Data berhasil dimuat ulang', false);
     })
