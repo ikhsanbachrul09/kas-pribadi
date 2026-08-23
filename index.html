@@ -225,7 +225,10 @@
     display:flex; align-items:center; justify-content:center; font-size:13px;
   }
   .icon-btn:hover{border-color:var(--cyan-2); color:var(--cyan-2);}
-  .icon-btn.del:hover{border-color:var(--danger-2); color:var(--danger-2);}
+  .icon-btn.edit{border-color:rgba(255,207,92,.4); color:var(--warn); background:rgba(255,207,92,.08);}
+  .icon-btn.edit:hover{border-color:var(--warn); background:rgba(255,207,92,.16);}
+  .icon-btn.del{border-color:rgba(255,93,122,.35); color:var(--danger-2); background:rgba(255,93,122,.08);}
+  .icon-btn.del:hover{border-color:var(--danger-2); background:rgba(255,93,122,.16);}
 
   .empty-state{text-align:center; padding:50px 20px; color:var(--text-2);}
   .empty-state .em-ic{font-size:34px; margin-bottom:10px;}
@@ -262,15 +265,6 @@
   .modal-actions{display:flex; gap:10px; margin-top:6px;}
   .modal-actions .btn{flex:1; justify-content:center;}
   .err-msg{color:var(--danger-2); font-size:12px; min-height:14px;}
-
-  .cat-input-wrap{position:relative;}
-  .cat-suggest{
-    position:absolute; top:calc(100% + 4px); left:0; right:0; background:#0a1826; border:1px solid var(--border);
-    border-radius:10px; max-height:160px; overflow-y:auto; z-index:10; display:none;
-  }
-  .cat-suggest.show{display:block;}
-  .cat-suggest div{padding:9px 12px; font-size:13px; color:var(--text-1);}
-  .cat-suggest div:hover{background:#102838; color:var(--text-0);}
 
   /* ---------- TOAST ---------- */
   #toast-container{position:fixed; bottom:22px; right:22px; z-index:200; display:flex; flex-direction:column; gap:10px;}
@@ -623,9 +617,20 @@
 
           <div class="pagination">
             <div class="pg-info" id="pgInfo">-</div>
-            <div class="pg-btns">
-              <button class="btn btn-ghost btn-sm" onclick="changePage(-1)">← Sebelumnya</button>
-              <button class="btn btn-ghost btn-sm" onclick="changePage(1)">Berikutnya →</button>
+            <div class="pg-btns" style="align-items:center;">
+              <label style="font-size:12px; color:var(--text-2); display:flex; align-items:center; gap:6px;">
+                Tampilkan
+                <select id="fPageSize" onchange="changePageSize()" style="padding:6px 8px; font-size:12.5px;">
+                  <option value="12">12</option>
+                  <option value="20">20</option>
+                  <option value="30">30</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="all">Semua</option>
+                </select>
+              </label>
+              <button class="btn btn-ghost btn-sm" id="btnPgPrev" onclick="changePage(-1)">← Sebelumnya</button>
+              <button class="btn btn-ghost btn-sm" id="btnPgNext" onclick="changePage(1)">Berikutnya →</button>
             </div>
           </div>
         </div>
@@ -713,15 +718,13 @@
       </div>
       <div class="field-full">
         <label>Keterangan</label>
-        <input type="text" id="fmKeterangan" placeholder="Contoh: Makan siang, Gaji, dsb.">
+        <input type="text" id="fmKeterangan" placeholder="Contoh: Makan siang, Gaji, dsb." oninput="updateKategoriBadge_()">
       </div>
       <div class="field-full">
-        <label>Kategori</label>
-        <div class="cat-input-wrap">
-          <input type="text" id="fmKategori" placeholder="Pilih atau ketik kategori baru" autocomplete="off"
-            oninput="showCatSuggest()" onfocus="showCatSuggest()">
-          <div class="cat-suggest" id="catSuggest"></div>
-        </div>
+        <label>Kategori (terdeteksi otomatis dari Keterangan)</label>
+        <div><span class="tag" id="kategoriBadge" style="font-size:13px; padding:6px 12px;">Lainnya</span></div>
+        <div style="font-size:11px; color:var(--text-2); margin-top:9px;">Tambahkan kata kunci ke Keterangan biar masuk kategori yang pas:</div>
+        <div id="kategoriChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;"></div>
       </div>
       <div class="err-msg" id="formErr"></div>
       <div class="modal-actions">
@@ -901,7 +904,7 @@ let DATA = [];              // seluruh transaksi (sudah termasuk saldo berjalan)
 let KATEGORI = [];
 let filtered = [];
 let currentPage = 1;
-const PAGE_SIZE = 12;
+let PAGE_SIZE = 12;
 let jenisFilter = '';
 let editingId = null;
 let deletingId = null;
@@ -1066,7 +1069,7 @@ function renderTagihanListManage_(){
     <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:13px;">
       <span>${escapeHtml(t.nama)} — ${rupiah(t.jumlah)} (tgl ${t.tglJatuhTempo})</span>
       <div style="display:flex; gap:6px;">
-        <button class="icon-btn" onclick="editTagihan(${t.id})" title="Edit">✎</button>
+        <button class="icon-btn edit" onclick="editTagihan(${t.id})" title="Edit">✎</button>
         <button class="icon-btn del" onclick="hapusTagihan(${t.id})" title="Hapus">🗑️</button>
       </div>
     </div>`).join('') : '<div class="delta">Belum ada tagihan.</div>';
@@ -1154,7 +1157,7 @@ function renderTabunganListManage_(){
     <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:13px;">
       <span>${escapeHtml(t.nama)} — ${rupiah(t.terkumpul)} / ${rupiah(t.target)}</span>
       <div style="display:flex; gap:6px;">
-        <button class="icon-btn" onclick="editTabungan(${t.id})" title="Edit">✎</button>
+        <button class="icon-btn edit" onclick="editTabungan(${t.id})" title="Edit">✎</button>
         <button class="icon-btn del" onclick="hapusTabungan(${t.id})" title="Hapus">🗑️</button>
       </div>
     </div>`).join('') : '<div class="delta">Belum ada target tabungan.</div>';
@@ -1665,7 +1668,7 @@ function renderTable(){
         <td data-label="Saldo" style="text-align:right;">${rupiah(t.saldoRunning)}</td>
         <td class="td-actions">
           <div class="row-actions">
-            <button class="icon-btn" title="Edit" onclick="openTransModal(${t.id})">✎</button>
+            <button class="icon-btn edit" title="Edit" onclick="openTransModal(${t.id})">✎</button>
             <button class="icon-btn del" title="Hapus" onclick="openConfirm(${t.id})">🗑</button>
           </div>
         </td>
@@ -1673,6 +1676,14 @@ function renderTable(){
   }
   document.getElementById('pgInfo').textContent =
     filtered.length===0 ? '0 data' : `Menampilkan ${start+1}-${Math.min(start+PAGE_SIZE, filtered.length)} dari ${filtered.length} data`;
+  document.getElementById('btnPgPrev').disabled = currentPage<=1;
+  document.getElementById('btnPgNext').disabled = currentPage>=totalPages;
+}
+function changePageSize(){
+  const val = document.getElementById('fPageSize').value;
+  PAGE_SIZE = val === 'all' ? Infinity : Number(val);
+  currentPage = 1;
+  renderTable();
 }
 function changePage(delta){
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -1822,11 +1833,71 @@ function rawAngka(id){
   return document.getElementById(id).value.replace(/\D/g, '');
 }
 
+/* ==================== KATEGORI OTOMATIS (replika persis dari backend) ====================
+ * Live preview di form tambah/edit -- BELUM disimpan, cuma menunjukkan
+ * kategori apa yang bakal kedeteksi backend dari Keterangan yang diketik,
+ * supaya user tahu kata kunci apa yang perlu ditambahkan.
+ */
+const KATEGORI_RULES_CLIENT = [
+  { re: /^ad$/i, kategori: 'Biaya Admin' },
+  { re: /gaji/i, kategori: 'Gaji' },
+  { re: /\b(tarik\s*tuna?i|tarik\s*tunia|top\s*up|gopay|shopeepay|shoopepay|ovo|dana)\b/i, kategori: 'Tarik Tunai/Top Up' },
+  { re: /\b(pln|pdam|indihome|pulsa|paket\s*data|paket\s*im3|paket\s*indosat|tagihan)\b/i, kategori: 'Tagihan' },
+  { re: /\btabungan\b/i, kategori: 'Tabungan' },
+  { re: /^dari\s/i, kategori: 'Transfer Masuk' },
+  { re: /\b(tf\s*ke|transfer\/?bayar|ganti\s*uang|ganti\s*oli|bayar)\b/i, kategori: 'Transfer/Bayar' },
+  { re: /\b(joki|honor|bonus|hasil\s*talang)\b/i, kategori: 'Penghasilan Lain' },
+  { re: /\b(bantuan|subsidi)\b/i, kategori: 'Bantuan' },
+  { re: /\b(nonton|hiburan)\b/i, kategori: 'Hiburan' },
+  { re: /\b(bensin|parkir|tiket)\b/i, kategori: 'Transportasi' },
+  { re: /\b(beli|belanja|baju|sepatu|celana|tas)\b/i, kategori: 'Belanja' },
+  { re: /\b(makan|ayam|nasi|mie|bakso|solaria|gacoan|kfc|mcd|cafe|caf(e|é)|kopi|teh|minum|sarapan)\b/i, kategori: 'Makan & Minum' }
+];
+function autoKategoriClient_(keterangan, jenis){
+  const k = (keterangan || '').trim();
+  for (let i = 0; i < KATEGORI_RULES_CLIENT.length; i++){
+    if (KATEGORI_RULES_CLIENT[i].re.test(k)) return KATEGORI_RULES_CLIENT[i].kategori;
+  }
+  return jenis === 'Masuk' ? 'Pemasukan Lain' : 'Lainnya';
+}
+const KATEGORI_KEYWORD_HINTS = [
+  { label:'makan', kategori:'Makan & Minum' },
+  { label:'bensin', kategori:'Transportasi' },
+  { label:'belanja', kategori:'Belanja' },
+  { label:'tagihan', kategori:'Tagihan' },
+  { label:'hiburan', kategori:'Hiburan' },
+  { label:'gaji', kategori:'Gaji' },
+  { label:'bonus', kategori:'Penghasilan Lain' },
+  { label:'bantuan', kategori:'Bantuan' },
+  { label:'tarik tunai', kategori:'Tarik Tunai/Top Up' },
+  { label:'tabungan', kategori:'Tabungan' }
+];
+function updateKategoriBadge_(){
+  const ket = document.getElementById('fmKeterangan').value;
+  const kat = autoKategoriClient_(ket, formJenis);
+  document.getElementById('kategoriBadge').textContent = kat;
+
+  const chipsWrap = document.getElementById('kategoriChips');
+  chipsWrap.innerHTML = KATEGORI_KEYWORD_HINTS.map(h => {
+    const active = h.kategori === kat;
+    const style = active ? 'background:rgba(42,245,193,.18); border-color:var(--green); color:var(--green);' : '';
+    return `<span class="tag" style="cursor:pointer; ${style}" onclick="tambahKataKunci_('${h.label}')">${h.label}</span>`;
+  }).join('');
+}
+function tambahKataKunci_(kata){
+  const el = document.getElementById('fmKeterangan');
+  const cur = el.value.trim();
+  el.value = cur ? (cur + ' ' + kata) : kata;
+  updateKategoriBadge_();
+  el.focus();
+}
+
 /* ==================== MODAL TAMBAH/EDIT ==================== */
 function setFormJenis(j){
   formJenis = j;
   document.getElementById('btnJenisMasuk').classList.toggle('active', j==='Masuk');
   document.getElementById('btnJenisKeluar').classList.toggle('active', j==='Keluar');
+  updateKategoriBadge_();
 }
 function openTransModal(id){
   editingId = id || null;
@@ -1837,48 +1908,29 @@ function openTransModal(id){
     document.getElementById('fmTanggal').value = t.tanggal;
     document.getElementById('fmJumlah').value = Number(t.jumlah).toLocaleString('id-ID');
     document.getElementById('fmKeterangan').value = t.keterangan;
-    document.getElementById('fmKategori').value = t.kategori;
     setFormJenis(t.jenis);
   } else {
     document.getElementById('modalTransTitle').textContent = 'Tambah Transaksi';
     document.getElementById('fmTanggal').value = new Date().toISOString().slice(0,10);
     document.getElementById('fmJumlah').value = '';
     document.getElementById('fmKeterangan').value = '';
-    document.getElementById('fmKategori').value = '';
     setFormJenis('Keluar');
   }
   document.getElementById('modalTrans').classList.add('show');
 }
 function closeTransModal(){
   document.getElementById('modalTrans').classList.remove('show');
-  document.getElementById('catSuggest').classList.remove('show');
 }
-function showCatSuggest(){
-  const val = document.getElementById('fmKategori').value.toLowerCase();
-  const matches = KATEGORI.filter(k=>k.toLowerCase().includes(val));
-  const box = document.getElementById('catSuggest');
-  if(matches.length===0){ box.classList.remove('show'); return; }
-  box.innerHTML = matches.map(k=>`<div onclick="pickCategori('${k.replace(/'/g,"\\'")}')">${k}</div>`).join('');
-  box.classList.add('show');
-}
-function pickCategori(k){
-  document.getElementById('fmKategori').value = k;
-  document.getElementById('catSuggest').classList.remove('show');
-}
-document.addEventListener('click', function(e){
-  if(!e.target.closest('.cat-input-wrap')) document.getElementById('catSuggest').classList.remove('show');
-});
 
 function submitTransaksi(){
   const tanggal = document.getElementById('fmTanggal').value;
   const jumlah = rawAngka('fmJumlah');
   const keterangan = document.getElementById('fmKeterangan').value.trim();
-  const kategori = document.getElementById('fmKategori').value.trim();
+  const kategori = autoKategoriClient_(keterangan, formJenis);
   const errEl = document.getElementById('formErr');
 
   if(!tanggal){ errEl.textContent='Tanggal wajib diisi.'; return; }
   if(!keterangan){ errEl.textContent='Keterangan wajib diisi.'; return; }
-  if(!kategori){ errEl.textContent='Kategori wajib diisi.'; return; }
   if(!jumlah || Number(jumlah)<=0){ errEl.textContent='Jumlah harus lebih dari 0.'; return; }
   errEl.textContent = '';
 
