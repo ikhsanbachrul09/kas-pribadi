@@ -198,6 +198,17 @@
   .rk-delta.down{color:var(--green);}
   .rk-delta.flat{color:var(--text-2);}
   .rk-delta.new{color:var(--warn);}
+
+  .cat-toggle-row{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px;}
+  .cat-chip{
+    display:inline-flex; align-items:center; gap:6px; padding:5px 11px 5px 8px;
+    border-radius:20px; font-size:11.5px; font-weight:600; cursor:pointer;
+    border:1px solid var(--border); background:#102838; color:var(--text-1);
+    transition:all .15s ease; user-select:none;
+  }
+  .cat-chip .cc-dot{width:8px;height:8px;border-radius:50%; flex-shrink:0;}
+  .cat-chip.off{opacity:.4; text-decoration:line-through;}
+  .cat-chip:hover{border-color:var(--cyan-2);}
   .chart-box{position:relative; height:260px;}
   .chart-box.sm{height:230px;}
 
@@ -718,6 +729,7 @@
 
         <div class="panel">
           <div class="panel-head"><h3>Tren Kategori per Bulan</h3><span class="hint">Pengeluaran, 6 bulan terakhir</span></div>
+          <div class="cat-toggle-row" id="catTrendChips"></div>
           <div class="chart-box"><canvas id="chartCatTrend"></canvas></div>
         </div>
       </section>
@@ -943,6 +955,7 @@ let editingId = null;
 let deletingId = null;
 let formJenis = 'Keluar';
 let charts = {};
+let catTrendHidden = new Set(); // nama kategori yang lagi disembunyikan di chart Tren Kategori
 let TAGIHAN = [];
 let TABUNGAN = [];
 
@@ -1875,7 +1888,10 @@ function renderCatTrend(){
   if(!chartAvailable()) return;
   const keys = last6MonthsKeys();
 
-  // Ambil top 6 kategori pengeluaran sepanjang 6 bulan ini, sisanya digabung "Lainnya"
+  // Tampilkan SEMUA kategori pengeluaran yang muncul dalam 6 bulan ini -- jangan
+  // dibatasin/gabung ke bucket "Lainnya" buatan sendiri, karena app sudah punya
+  // kategori asli bernama persis "Lainnya" (fallback default autoKategori_) --
+  // kalau dipaksa gabung, 2 dataset beda isi jadi bentrok nama di legend/tooltip.
   const totalPerKat = {};
   keys.forEach(k=>{
     DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar').forEach(t=>{
@@ -1883,23 +1899,19 @@ function renderCatTrend(){
     });
   });
   const allKats = Object.keys(totalPerKat).sort((a,b)=>totalPerKat[b]-totalPerKat[a]);
-  const topKats = allKats.slice(0,6);
-  const hasLainnya = allKats.length > 6;
+  const colors = catColors(allKats.length);
 
-  const colors = catColors(topKats.length + (hasLainnya?1:0));
-  const datasets = topKats.map((kat,i)=>({
+  // Bersihkan state hidden dari kategori yang udah gak muncul lagi di window 6 bulan ini
+  catTrendHidden.forEach(k=>{ if(!allKats.includes(k)) catTrendHidden.delete(k); });
+
+  renderCatTrendChips_(allKats, colors);
+
+  const datasets = allKats.map((kat,i)=>({
     label: kat,
     data: keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar' && t.kategori===kat).reduce((s,t)=>s+t.jumlah,0)),
-    backgroundColor: colors[i]
+    backgroundColor: colors[i],
+    hidden: catTrendHidden.has(kat)
   }));
-  if(hasLainnya){
-    const sisaKats = allKats.slice(6);
-    datasets.push({
-      label:'Lainnya',
-      data: keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar' && sisaKats.includes(t.kategori)).reduce((s,t)=>s+t.jumlah,0)),
-      backgroundColor:'#4a6070'
-    });
-  }
 
   const ctx = document.getElementById('chartCatTrend');
   if(charts.catTrend) charts.catTrend.destroy();
@@ -1909,7 +1921,7 @@ function renderCatTrend(){
     data:{labels: keys.map(monthLabel), datasets},
     options:{
       responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{position:'bottom', labels:{color:theme.text, font:{size:10.5}, boxWidth:10, padding:8}},
+      plugins:{legend:{display:false},
         tooltip:{callbacks:{label:(c)=>c.dataset.label+': '+rupiah(c.raw)}}},
       scales:{
         x:{stacked:true, ticks:{color:theme.text, font:theme.font}, grid:{color:'transparent'}},
@@ -1917,6 +1929,25 @@ function renderCatTrend(){
       }
     }
   });
+}
+
+/** Render chip toggle show/hide per kategori. Chip yang aktif (warna penuh) = kategori
+ * tampil di chart; chip nonaktif (redup, coret) = disembunyikan. Klik = toggle,
+ * state disimpan di catTrendHidden supaya tetap konsisten pas ganti bulan/reload rekap. */
+function renderCatTrendChips_(allKats, colors){
+  const wrap = document.getElementById('catTrendChips');
+  if(allKats.length===0){ wrap.innerHTML=''; return; }
+  wrap.innerHTML = allKats.map((kat,i)=>{
+    const off = catTrendHidden.has(kat);
+    return `<span class="cat-chip${off?' off':''}" onclick="toggleCatTrend_('${kat.replace(/'/g,"\\'")}')">
+      <span class="cc-dot" style="background:${colors[i]}"></span>${escapeHtml(kat)}
+    </span>`;
+  }).join('');
+}
+function toggleCatTrend_(kat){
+  if(catTrendHidden.has(kat)) catTrendHidden.delete(kat);
+  else catTrendHidden.add(kat);
+  renderCatTrend();
 }
 
 function renderSaldoKumulatif(){
