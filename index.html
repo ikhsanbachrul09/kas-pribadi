@@ -180,6 +180,24 @@
   .panel-head .hint{font-size:11.5px; color:var(--text-2);}
 
   .row-2col{display:grid; grid-template-columns:1.4fr 1fr; gap:18px;}
+
+  .rincian-kat-table{display:flex; flex-direction:column; gap:2px;}
+  .rk-row{
+    display:grid; grid-template-columns:1.6fr 1fr .7fr 1fr;
+    align-items:center; gap:10px; padding:10px 6px;
+    border-bottom:1px solid var(--border-soft); font-size:13px;
+  }
+  .rk-row:last-child{border-bottom:none;}
+  .rk-head{color:var(--text-2); font-size:11px; text-transform:uppercase; letter-spacing:.6px; font-weight:600;}
+  .rk-row .rk-cat{display:flex; align-items:center; gap:8px; color:var(--text-0); font-weight:500;}
+  .rk-dot{width:9px;height:9px;border-radius:50%; flex-shrink:0;}
+  .rk-row .rk-amt{font-weight:600; font-family:'Space Grotesk',sans-serif;}
+  .rk-row .rk-pct{color:var(--text-2);}
+  .rk-delta{font-size:12px; font-weight:600; display:flex; align-items:center; gap:4px;}
+  .rk-delta.up{color:var(--danger-2);}
+  .rk-delta.down{color:var(--green);}
+  .rk-delta.flat{color:var(--text-2);}
+  .rk-delta.new{color:var(--warn);}
   .chart-box{position:relative; height:260px;}
   .chart-box.sm{height:230px;}
 
@@ -677,6 +695,16 @@
           </div>
         </div>
 
+        <div class="panel">
+          <div class="panel-head"><h3>Rincian Kategori</h3><span class="hint" id="rincianKatHint">Bulan dipilih vs bulan sebelumnya</span></div>
+          <div class="rincian-kat-table">
+            <div class="rk-row rk-head">
+              <span>Kategori</span><span>Jumlah</span><span>%</span><span>vs Bln Lalu</span>
+            </div>
+            <div id="rincianKatBody"></div>
+          </div>
+        </div>
+
         <div class="row-2col">
           <div class="panel">
             <div class="panel-head"><h3>Perbandingan Bulanan (12 bulan)</h3><span class="hint">Masuk vs Keluar</span></div>
@@ -686,6 +714,11 @@
             <div class="panel-head"><h3>Top 5 Pengeluaran Terbesar</h3><span class="hint" id="topHint">Bulan dipilih</span></div>
             <div class="top-list" id="topList"></div>
           </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Tren Kategori per Bulan</h3><span class="hint">Pengeluaran, 6 bulan terakhir</span></div>
+          <div class="chart-box"><canvas id="chartCatTrend"></canvas></div>
         </div>
       </section>
 
@@ -1773,6 +1806,117 @@ function renderRekap(){
   renderBar12();
   renderPieRekap(txSet);
   renderTopPengeluaran(txSet);
+  renderRincianKategori(bulan);
+  renderCatTrend();
+}
+
+/* ==================== RINCIAN KATEGORI (bulan dipilih vs bulan sebelumnya) ==================== */
+function prevMonthKey(ymStr){
+  const [y,m] = ymStr.split('-').map(Number);
+  const dt = new Date(y, m-2, 1); // m-1 = bulan ini (0-based), -1 lagi = bulan sebelumnya
+  return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');
+}
+function sumByKategori_(txArr){
+  const out = {};
+  txArr.filter(t=>t.jenis==='Keluar').forEach(t=> out[t.kategori] = (out[t.kategori]||0) + t.jumlah);
+  return out;
+}
+function renderRincianKategori(bulan){
+  const body = document.getElementById('rincianKatBody');
+  const hint = document.getElementById('rincianKatHint');
+
+  // Kalau "Semua Bulan" dipilih, bandingkan bulan berjalan (real) vs bulan sebelumnya
+  // supaya delta tetap bermakna; kalau bulan spesifik dipilih, bandingkan itu vs bulan sebelumnya.
+  const curKey = bulan || ym(new Date().toISOString().slice(0,10));
+  const prevKey = prevMonthKey(curKey);
+
+  const curSet = DATA.filter(t=>ym(t.tanggal)===curKey);
+  const prevSet = DATA.filter(t=>ym(t.tanggal)===prevKey);
+
+  const curByCat = sumByKategori_(curSet);
+  const prevByCat = sumByKategori_(prevSet);
+
+  const totalCur = Object.values(curByCat).reduce((s,v)=>s+v,0);
+  const labels = Object.keys(curByCat).sort((a,b)=>curByCat[b]-curByCat[a]);
+  const colors = catColors(labels.length);
+
+  hint.textContent = monthLabel(curKey) + ' vs ' + monthLabel(prevKey);
+
+  if(labels.length===0){
+    body.innerHTML = '<div class="empty-state" style="padding:16px;">Tidak ada pengeluaran di bulan ini</div>';
+    return;
+  }
+
+  body.innerHTML = labels.map((kat,i)=>{
+    const amt = curByCat[kat];
+    const pct = totalCur ? (amt/totalCur*100) : 0;
+    const prevAmt = prevByCat[kat] || 0;
+    let deltaHtml;
+    if(prevAmt === 0){
+      deltaHtml = `<span class="rk-delta new">Baru</span>`;
+    } else {
+      const deltaPct = ((amt - prevAmt) / prevAmt) * 100;
+      const cls = deltaPct > 0.5 ? 'up' : (deltaPct < -0.5 ? 'down' : 'flat');
+      const arrow = cls==='up' ? '▲' : (cls==='down' ? '▼' : '—');
+      deltaHtml = `<span class="rk-delta ${cls}">${arrow} ${Math.abs(deltaPct).toFixed(0)}%</span>`;
+    }
+    return `
+      <div class="rk-row">
+        <span class="rk-cat"><span class="rk-dot" style="background:${colors[i]}"></span>${escapeHtml(kat)}</span>
+        <span class="rk-amt">${rupiah(amt)}</span>
+        <span class="rk-pct">${pct.toFixed(0)}%</span>
+        ${deltaHtml}
+      </div>`;
+  }).join('');
+}
+
+/* ==================== TREN KATEGORI PER BULAN (stacked, 6 bulan) ==================== */
+function renderCatTrend(){
+  if(!chartAvailable()) return;
+  const keys = last6MonthsKeys();
+
+  // Ambil top 6 kategori pengeluaran sepanjang 6 bulan ini, sisanya digabung "Lainnya"
+  const totalPerKat = {};
+  keys.forEach(k=>{
+    DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar').forEach(t=>{
+      totalPerKat[t.kategori] = (totalPerKat[t.kategori]||0) + t.jumlah;
+    });
+  });
+  const allKats = Object.keys(totalPerKat).sort((a,b)=>totalPerKat[b]-totalPerKat[a]);
+  const topKats = allKats.slice(0,6);
+  const hasLainnya = allKats.length > 6;
+
+  const colors = catColors(topKats.length + (hasLainnya?1:0));
+  const datasets = topKats.map((kat,i)=>({
+    label: kat,
+    data: keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar' && t.kategori===kat).reduce((s,t)=>s+t.jumlah,0)),
+    backgroundColor: colors[i]
+  }));
+  if(hasLainnya){
+    const sisaKats = allKats.slice(6);
+    datasets.push({
+      label:'Lainnya',
+      data: keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar' && sisaKats.includes(t.kategori)).reduce((s,t)=>s+t.jumlah,0)),
+      backgroundColor:'#4a6070'
+    });
+  }
+
+  const ctx = document.getElementById('chartCatTrend');
+  if(charts.catTrend) charts.catTrend.destroy();
+  const theme = chartTheme();
+  charts.catTrend = new Chart(ctx, {
+    type:'bar',
+    data:{labels: keys.map(monthLabel), datasets},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom', labels:{color:theme.text, font:{size:10.5}, boxWidth:10, padding:8}},
+        tooltip:{callbacks:{label:(c)=>c.dataset.label+': '+rupiah(c.raw)}}},
+      scales:{
+        x:{stacked:true, ticks:{color:theme.text, font:theme.font}, grid:{color:'transparent'}},
+        y:{stacked:true, ticks:{color:theme.text, font:theme.font, callback:(v)=> (v>=1000000? (v/1000000)+'jt' : v>=1000? (v/1000)+'rb' : v)}, grid:{color:theme.grid}}
+      }
+    }
+  });
 }
 
 function renderSaldoKumulatif(){
