@@ -1015,7 +1015,12 @@ function renderTagihan(){
 function tandaiLunas(id){
   if (!confirm('Tandai tagihan ini sudah dibayar? Transaksi pengeluaran akan otomatis dicatat.')) return;
   google.script.run
-    .withSuccessHandler(function(){ showToast_('Tagihan dicatat sebagai pengeluaran', false); refreshAll(); })
+    .withSuccessHandler(function(){
+      showToast_('Tagihan dicatat sebagai pengeluaran', false);
+      reloadTransaksiData_().catch(function(err){
+        showToast_('Tercatat, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
+      });
+    })
     .withFailureHandler(function(err){ showToast_((err && err.message) || 'Gagal mencatat pembayaran', true); })
     .bayarTagihan({ id: id });
 }
@@ -1234,7 +1239,16 @@ function submitSetorTarik(){
   const btn = document.getElementById('btnSetorTarik');
   btn.disabled=true; btn.textContent='Menyimpan...';
   const runner = google.script.run
-    .withSuccessHandler(function(){ btn.disabled=false; btn.textContent='Simpan'; closeSetorTarikModal(); showToast_('Berhasil disimpan', false); refreshAll(); })
+    .withSuccessHandler(function(t){
+      btn.disabled=false; btn.textContent='Simpan';
+      closeSetorTarikModal();
+      TABUNGAN = TABUNGAN.map(x => x.id === t.id ? t : x);
+      renderTabungan();
+      showToast_('Berhasil disimpan', false);
+      reloadTransaksiData_().catch(function(err){
+        showToast_('Tersimpan, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
+      });
+    })
     .withFailureHandler(function(err){ btn.disabled=false; btn.textContent='Simpan'; document.getElementById('setorTarikErr').textContent=(err&&err.message)||'Gagal menyimpan'; });
   if (tipe === 'setor') runner.setorTabungan({ id: id, jumlah: jumlah });
   else runner.tarikTabungan({ id: id, jumlah: jumlah });
@@ -1618,9 +1632,14 @@ function populateBulanOptions(){
   const months = Array.from(new Set(DATA.map(t=>ym(t.tanggal)))).sort().reverse();
   const fBulan = document.getElementById('fBulan');
   const rBulan = document.getElementById('rBulan');
+  const prevF = fBulan.value, prevR = rBulan.value;
   fBulan.innerHTML = '<option value="">Semua Bulan</option>' + months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('');
   rBulan.innerHTML = '<option value="">Semua Waktu</option>' + months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('');
-  if(months.includes(thisMonthStr())) rBulan.value = thisMonthStr();
+  // Pertahankan pilihan filter yang sedang aktif -- jangan reset ke "Semua"
+  // cuma gara-gara opsi bulan di-generate ulang setelah data berubah.
+  fBulan.value = months.includes(prevF) ? prevF : '';
+  if(prevR && months.includes(prevR)) rBulan.value = prevR;
+  else if(months.includes(thisMonthStr())) rBulan.value = thisMonthStr();
 }
 function populateKategoriOptions(){
   const fKategori = document.getElementById('fKategori');
@@ -1631,7 +1650,7 @@ function setJenisFilter(val){
   document.querySelectorAll('#fJenis button').forEach(b=>b.classList.toggle('active', b.dataset.val===val));
   applyFilters();
 }
-function applyFilters(){
+function computeFiltered_(){
   const search = document.getElementById('fSearch').value.toLowerCase();
   const bulan = document.getElementById('fBulan').value;
   const kategori = document.getElementById('fKategori').value;
@@ -1642,8 +1661,50 @@ function applyFilters(){
     if(jenisFilter && t.jenis!==jenisFilter) return false;
     return true;
   });
+}
+function applyFilters(){
+  // Dipanggil saat user MENGUBAH filter secara sengaja -> wajar balik ke halaman 1.
+  computeFiltered_();
   currentPage = 1;
   renderTable();
+}
+function reapplyFiltersKeepPage_(){
+  // Dipanggil setelah reload data di belakang layar (habis tambah/edit/hapus
+  // transaksi) -- filter, halaman aktif, dan posisi scroll TIDAK di-reset.
+  computeFiltered_();
+  renderTable();
+}
+function setTableLoading_(on){
+  const wrap = document.querySelector('#page-transaksi .table-wrap');
+  if(!wrap) return;
+  wrap.style.opacity = on ? '.45' : '';
+  wrap.style.pointerEvents = on ? 'none' : '';
+  wrap.style.transition = 'opacity .15s ease';
+}
+/** Reload ringan: cuma ambil ulang data transaksi (bukan seluruh app seperti
+ * refreshAll) supaya filter, halaman aktif, dan pengaturan lain yang sedang
+ * dibuka TIDAK ikut ke-reset. Dipakai setiap kali ada perubahan transaksi
+ * (tambah/edit/hapus/tandai lunas/setor/tarik tabungan). */
+function reloadTransaksiData_(){
+  setTableLoading_(true);
+  return new Promise(function(resolve, reject){
+    google.script.run
+      .withSuccessHandler(function(rows){
+        DATA = computeSaldo(rows);
+        populateBulanOptions();
+        reapplyFiltersKeepPage_();
+        renderDashboard();
+        renderRekap();
+        renderRunway();
+        setTableLoading_(false);
+        resolve();
+      })
+      .withFailureHandler(function(err){
+        setTableLoading_(false);
+        reject(err);
+      })
+      .getAllTransaksi();
+  });
 }
 function renderTable(){
   const tbody = document.getElementById('tblTransaksi');
@@ -1956,7 +2017,9 @@ function afterSave(msg){
   btn.disabled = false; btn.innerHTML = 'Simpan Transaksi';
   closeTransModal();
   showToast_(msg, false);
-  refreshAll(false);
+  reloadTransaksiData_().catch(function(err){
+    showToast_('Tersimpan, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
+  });
 }
 function onSaveFail(err){
   const btn = document.getElementById('btnSaveTrans');
@@ -1981,7 +2044,9 @@ function confirmDelete(){
       btn.disabled = false; btn.innerHTML = 'Ya, Hapus';
       closeConfirm();
       showToast_('Transaksi berhasil dihapus', false);
-      refreshAll(false);
+      reloadTransaksiData_().catch(function(err){
+        showToast_('Terhapus, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
+      });
     })
     .withFailureHandler(function(err){
       btn.disabled = false; btn.innerHTML = 'Ya, Hapus';
