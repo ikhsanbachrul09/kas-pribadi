@@ -199,6 +199,38 @@
   .rk-delta.flat{color:var(--text-2);}
   .rk-delta.new{color:var(--warn);}
 
+  /* ---------- ENVELOPE / JAR VISUAL (Target Tabungan) ---------- */
+  .env-card{display:flex; gap:14px; padding:14px 2px; border-bottom:1px solid #0e1e2b; align-items:center;}
+  .env-card:last-child{border-bottom:none;}
+  .env-jar{
+    position:relative; width:46px; height:64px; flex-shrink:0;
+    border-radius:9px 9px 15px 15px; background:#0b1c2a;
+    border:1px solid var(--border-soft); overflow:hidden;
+  }
+  .env-jar-fill{
+    position:absolute; left:0; right:0; bottom:0; min-height:3px;
+    transition:height .7s cubic-bezier(.34,1.4,.64,1);
+    border-radius:0 0 13px 13px;
+  }
+  .env-jar-fill::after{
+    content:''; position:absolute; top:0; left:0; right:0; height:6px;
+    background:rgba(255,255,255,.22);
+  }
+  .env-jar-tick{position:absolute; left:0; right:0; height:1px; background:rgba(255,255,255,.15); z-index:1;}
+  .env-jar-pct{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:10.5px; font-weight:800; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.7); z-index:2;
+  }
+  .env-info{flex:1; min-width:0;}
+  .env-head{display:flex; justify-content:space-between; align-items:center; gap:8px;}
+  .env-head .env-name{font-weight:600; font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .env-amt{font-size:12px; color:var(--text-2); margin-top:3px;}
+  .env-amt b{color:var(--text-0); font-weight:700;}
+  .env-remaining{font-size:11.5px; margin-top:2px; font-weight:600;}
+  .env-remaining.done{color:var(--green);}
+  .env-remaining.pending{color:var(--text-2);}
+  .env-actions{display:flex; gap:6px; margin-top:8px;}
+
   .cat-toggle-row{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px;}
   .cat-chip{
     display:inline-flex; align-items:center; gap:6px; padding:5px 11px 5px 8px;
@@ -1081,18 +1113,30 @@ function tandaiLunas(id){
 function renderTabungan(){
   const body = document.getElementById('tabunganBody');
   if (!TABUNGAN.length){ body.innerHTML = '<div class="delta">Belum ada target tabungan. Klik "Kelola" untuk menambah.</div>'; return; }
-  body.innerHTML = TABUNGAN.map(t => {
+  const colors = catColors(TABUNGAN.length);
+  body.innerHTML = TABUNGAN.map((t,i) => {
     const pct = Math.min(100, Math.round((t.terkumpul / t.target) * 100));
+    const color = colors[i];
+    const sisa = Math.max(0, t.target - t.terkumpul);
+    const selesai = t.status === 'Selesai';
     return `
-    <div style="padding:10px 0; border-bottom:1px solid #0e1e2b;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div style="font-weight:600; font-size:13.5px;">${escapeHtml(t.nama)} ${t.status==='Selesai'?'✅':''}</div>
-        <div style="font-size:12px; color:var(--text-2);">${pct}%</div>
+    <div class="env-card">
+      <div class="env-jar" title="${pct}% terkumpul">
+        <div class="env-jar-tick" style="bottom:25%;"></div>
+        <div class="env-jar-tick" style="bottom:50%;"></div>
+        <div class="env-jar-tick" style="bottom:75%;"></div>
+        <div class="env-jar-fill" style="height:${pct}%; background:linear-gradient(180deg, ${color}, ${color}cc);"></div>
+        <div class="env-jar-pct">${pct}%</div>
       </div>
-      <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%;"></div></div>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
-        <div style="font-size:12px; color:var(--text-2);">${rupiah(t.terkumpul)} / ${rupiah(t.target)}</div>
-        <div style="display:flex; gap:6px;">
+      <div class="env-info">
+        <div class="env-head">
+          <div class="env-name">${escapeHtml(t.nama)} ${selesai?'✅':''}</div>
+        </div>
+        <div class="env-amt"><b>${rupiah(t.terkumpul)}</b> / ${rupiah(t.target)}</div>
+        <div class="env-remaining ${selesai?'done':'pending'}">
+          ${selesai ? 'Target tercapai 🎉' : 'Kurang '+rupiah(sisa)+' lagi'}
+        </div>
+        <div class="env-actions">
           <button class="btn btn-sm btn-ghost" onclick="openSetorTarikModal(${t.id}, 'setor')">Setor</button>
           <button class="btn btn-sm btn-ghost" onclick="openSetorTarikModal(${t.id}, 'tarik')">Tarik</button>
         </div>
@@ -2082,20 +2126,25 @@ function rawAngka(id){
  * supaya user tahu kata kunci apa yang perlu ditambahkan.
  */
 const KATEGORI_RULES_CLIENT = [
-  { re: /^ad$/i, kategori: 'Biaya Admin' },
-  { re: /gaji/i, kategori: 'Gaji' },
-  { re: /\b(tarik\s*tuna?i|tarik\s*tunia|top\s*up|gopay|shopeepay|shoopepay|ovo|dana)\b/i, kategori: 'Tarik Tunai/Top Up' },
-  { re: /\b(pln|pdam|indihome|pulsa|paket\s*data|paket\s*im3|paket\s*indosat|tagihan)\b/i, kategori: 'Tagihan' },
-  { re: /\btabungan\b/i, kategori: 'Tabungan' },
-  { re: /^dari\s/i, kategori: 'Transfer Masuk' },
-  { re: /\b(tf\s*ke|transfer\/?bayar|ganti\s*uang|ganti\s*oli|bayar)\b/i, kategori: 'Transfer/Bayar' },
-  { re: /\b(joki|honor|bonus|hasil\s*talang)\b/i, kategori: 'Penghasilan Lain' },
-  { re: /\b(bantuan|subsidi)\b/i, kategori: 'Bantuan' },
-  { re: /\b(nonton|hiburan)\b/i, kategori: 'Hiburan' },
-  { re: /\b(bensin|parkir|tiket)\b/i, kategori: 'Transportasi' },
-  { re: /\b(beli|belanja|baju|sepatu|celana|tas)\b/i, kategori: 'Belanja' },
+  // Sinyal pemasukan/khusus spesifik -- dicek duluan, sebelum kata umum "bayar/transfer" di bawah.
+  { re: /\b(gaji|payroll|salary)\b/i, kategori: 'Gaji' },
+  { re: /(^dari\s|\btransfer\s*masuk\b|\bterima\s*transfer\b|\bkiriman\s*dari\b|\bditransfer(kan)?\b)/i, kategori: 'Transfer Masuk' },
+  { re: /\b(biaya\s*admin|admin\s*bank|potongan\s*bank|materai)\b/i, kategori: 'Biaya Admin' },
+
+  { re: /\b(pln|pdam|indihome|pulsa|paket\s*data|paket\s*im3|paket\s*indosat|tagihan|wifi|listrik|air|bpjs|cicilan|kredit|gas|iuran|internet)\b/i, kategori: 'Tagihan' },
+  { re: /\b(tabungan|nabung|celengan|deposito)\b/i, kategori: 'Tabungan' },
+  { re: /\b(joki|honor|bonus|hasil\s*talang|freelance|cashback|refund)\b/i, kategori: 'Penghasilan Lain' },
+  { re: /\b(bantuan|subsidi|blt|sumbangan)\b/i, kategori: 'Bantuan' },
+  { re: /\b(nonton|hiburan|game|netflix|spotify|bioskop|konser|xxi|cgv|wisata|karaoke)\b/i, kategori: 'Hiburan' },
+  { re: /\b(bensin|parkir|tiket|maxim|gojek|grab|ojek|krl|tol|service\s*motor|ganti\s*oli|bengkel)\b/i, kategori: 'Transportasi' },
+  { re: /\b(beli|belanja|baju|sepatu|celana|tas|skincare|kosmetik|elektronik|sabun|sampo)\b/i, kategori: 'Belanja' },
   { re: /\b(jajan|snack|cemilan|cilok|cimol|batagor|gorengan|es\s*teh|es\s*krim|chiki|permen)\b/i, kategori: 'Jajan Harian' },
-  { re: /\b(makan|ayam|nasi|mie|bakso|solaria|gacoan|kfc|mcd|cafe|caf(e|é)|kopi|teh|minum|sarapan)\b/i, kategori: 'Makan & Minum' }
+  { re: /\b(makan|ayam|nasi|mie|bakso|solaria|gacoan|kfc|mcd|cafe|caf(e|é)|kopi|teh|minum|sarapan|warteg|padang|gofood|grabfood|resto|restoran|sushi|pizza|burger)\b/i, kategori: 'Makan & Minum' },
+  { re: /\b(tarik\s*tuna?i|tarik\s*tunia|top\s*up|isi\s*saldo|gopay|shopeepay|shoopepay|ovo|dana|linkaja|atm)\b/i, kategori: 'Tarik Tunai/Top Up' },
+
+  // Catch-all umum -- ditaruh PALING TERAKHIR biar gak nyerobot kategori spesifik
+  // di atas (mis. "bayar parkir" harus kena Transportasi, bukan sini).
+  { re: /\b(tf\s*ke|transfer\/?bayar|ganti\s*uang|bayar)\b/i, kategori: 'Transfer/Bayar' }
 ];
 function autoKategoriClient_(keterangan, jenis){
   const k = (keterangan || '').trim();
