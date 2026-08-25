@@ -16,28 +16,37 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg-0:#050b12;
-    --bg-1:#081420;
-    --bg-2:#0c1c2c;
-    --panel:#0e2233cc;
-    --panel-solid:#0d1f30;
-    --border:#1c3b4f;
-    --border-soft:#15293a;
-    --cyan:#2af5c1;
-    --cyan-2:#31e0ff;
-    --green:#3dffb0;
-    --blue:#3aa7ff;
-    --text-0:#eaf6f7;
-    --text-1:#a7c2cc;
-    --text-2:#66838f;
-    --danger:#ff5d7a;
-    --danger-2:#ff8296;
+    --bg-0:#0b1220;
+    --bg-1:#0F172A;
+    --bg-2:#131f34;
+    --panel:#192134cc;
+    --panel-solid:#192134;
+    --border:rgba(255,255,255,.10);
+    --border-soft:rgba(255,255,255,.06);
+    --cyan:#3B82F6;
+    --cyan-2:#60A5FA;
+    --green:#10B981;
+    --blue:#1E40AF;
+    --text-0:#FFFFFF;
+    --text-1:#94A3B8;
+    --text-2:#64748B;
+    --danger:#F87171;
+    --danger-2:#FCA5A5;
     --warn:#ffcf5c;
     --radius:16px;
     --radius-sm:10px;
-    --shadow-glow:0 0 0 1px rgba(58,231,193,.08), 0 8px 30px -8px rgba(0,0,0,.6);
+    --shadow-glow:0 0 0 1px rgba(59,130,246,.10), 0 8px 30px -8px rgba(0,0,0,.6);
   }
   *{box-sizing:border-box; margin:0; padding:0;}
+
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{
+      animation-duration:0.001ms !important;
+      animation-iteration-count:1 !important;
+      transition-duration:0.001ms !important;
+      scroll-behavior:auto !important;
+    }
+  }
   html,body{height:100%;}
   body{
     font-family:'Inter',sans-serif;
@@ -118,7 +127,7 @@
     padding:18px 28px; gap:16px;
     border-bottom:1px solid var(--border-soft);
     position:sticky; top:0; z-index:20;
-    background:rgba(5,11,18,.75); backdrop-filter:blur(14px);
+    background:rgba(11,18,32,.75); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
   }
   #menu-toggle{display:none; background:var(--panel-solid); border:1px solid var(--border); color:var(--text-0); width:38px;height:38px;border-radius:10px; font-size:18px;}
   .page-title{font-size:20px; font-weight:700;}
@@ -174,6 +183,7 @@
   .panel{
     background:var(--panel); border:1px solid var(--border-soft); border-radius:var(--radius);
     padding:20px; box-shadow:var(--shadow-glow); margin-bottom:20px;
+    backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
   }
   .panel-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; flex-wrap:wrap;}
   .panel-head h3{font-size:15px; font-weight:600;}
@@ -305,6 +315,7 @@
     opacity:0; pointer-events:none; transition:opacity .2s ease;
   }
   .modal-overlay.show{opacity:1; pointer-events:auto;}
+  #modalConfirm{z-index:200;}
   .modal{
     background:var(--panel-solid); border:1px solid var(--border); border-radius:18px;
     width:100%; max-width:460px; padding:22px; box-shadow:0 20px 60px -10px rgba(0,0,0,.7);
@@ -378,7 +389,8 @@
     .toggle-jenis button{min-height:48px; font-size:14px;}
     .seg{padding:4px;}
     .seg button{padding:11px 10px; min-height:40px; font-size:13px;}
-    .icon-btn{width:40px; height:40px; font-size:15px;}
+    .icon-btn{width:44px; height:44px; font-size:16px;}
+    .row-actions{gap:8px;}
 
     /* Tombol "+ Tambah Transaksi" di topbar disembunyikan, diganti FAB */
     .topbar-actions .btn-primary{display:none;}
@@ -819,11 +831,11 @@
   </div>
 </div>
 
-<!-- ================= MODAL KONFIRMASI HAPUS ================= -->
+<!-- ================= MODAL KONFIRMASI HAPUS (generic, dipakai Transaksi/Tagihan/Tabungan) ================= -->
 <div class="modal-overlay" id="modalConfirm">
   <div class="modal" style="max-width:380px;">
-    <h3>Hapus Transaksi?</h3>
-    <div class="modal-sub">Tindakan ini tidak bisa dibatalkan. Data akan dihapus permanen dari spreadsheet.</div>
+    <h3 id="confirmDelTitle">Hapus Data?</h3>
+    <div class="modal-sub" id="confirmDelSub">Tindakan ini tidak bisa dibatalkan. Data akan dihapus permanen dari spreadsheet.</div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeConfirm()">Batal</button>
       <button class="btn btn-danger" id="btnConfirmDel" onclick="confirmDelete()">Ya, Hapus</button>
@@ -991,7 +1003,6 @@ let currentPage = 1;
 let PAGE_SIZE = 12;
 let jenisFilter = '';
 let editingId = null;
-let deletingId = null;
 let formJenis = 'Keluar';
 let charts = {};
 let catTrendHidden = new Set(); // nama kategori yang lagi disembunyikan di chart Tren Kategori
@@ -1225,15 +1236,17 @@ function submitTagihan(){
   }
 }
 function hapusTagihan(id){
-  if (!confirm('Hapus tagihan ini?')) return;
-  google.script.run
-    .withSuccessHandler(function(){
+  openConfirmModal({
+    id: id, action: 'deleteTagihan',
+    title: 'Hapus Tagihan?',
+    subtitle: 'Tagihan ini akan dihapus permanen dari daftar.',
+    successMsg: 'Tagihan dihapus',
+    onSuccess: function(){
       TAGIHAN = TAGIHAN.filter(t=>t.id!==id);
       if (editingTagihanId === id) resetFormTagihan_();
-      renderTagihanListManage_(); renderTagihan(); showToast_('Tagihan dihapus', false);
-    })
-    .withFailureHandler(function(err){ showToast_((err&&err.message)||'Gagal menghapus', true); })
-    .deleteTagihan(id);
+      renderTagihanListManage_(); renderTagihan();
+    }
+  });
 }
 
 let editingTabunganId = null;
@@ -1310,15 +1323,17 @@ function submitTabungan(){
   }
 }
 function hapusTabungan(id){
-  if (!confirm('Hapus target tabungan ini?')) return;
-  google.script.run
-    .withSuccessHandler(function(){
+  openConfirmModal({
+    id: id, action: 'deleteTabungan',
+    title: 'Hapus Target Tabungan?',
+    subtitle: 'Target dan riwayat setoran/tarik terkait akan dihapus permanen.',
+    successMsg: 'Target dihapus',
+    onSuccess: function(){
       TABUNGAN = TABUNGAN.filter(t=>t.id!==id);
       if (editingTabunganId === id) resetFormTabungan_();
-      renderTabunganListManage_(); renderTabungan(); showToast_('Target dihapus', false);
-    })
-    .withFailureHandler(function(err){ showToast_((err&&err.message)||'Gagal menghapus', true); })
-    .deleteTabungan(id);
+      renderTabunganListManage_(); renderTabungan();
+    }
+  });
 }
 
 let _setorTarikTarget = null;
@@ -1401,13 +1416,22 @@ let chartJsReady = false;
 function loadChartJs(sources){
   return new Promise(function(resolve){
     function tryNext(i){
-      if(typeof Chart !== 'undefined'){ resolve(true); return; }
+      if(typeof Chart !== 'undefined'){ finish(); return; }
       if(i >= sources.length){ resolve(false); return; }
       const s = document.createElement('script');
       s.src = sources[i];
-      s.onload = function(){ resolve(true); };
+      s.onload = function(){ finish(); };
       s.onerror = function(){ tryNext(i+1); };
       document.head.appendChild(s);
+    }
+    function finish(){
+      // Hormati preferensi OS "kurangi animasi" -- CSS transition/keyframe sudah
+      // dihandle via @media (prefers-reduced-motion), tapi animasi Chart.js
+      // dikontrol lewat opsi JS, jadi dimatikan terpisah begitu library ready.
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        Chart.defaults.animation = false;
+      }
+      resolve(true);
     }
     tryNext(0);
   });
@@ -2260,31 +2284,63 @@ function onSaveFail(err){
 }
 
 /* ==================== HAPUS ==================== */
-function openConfirm(id){
-  deletingId = id;
+// deletingId : id data yang mau dihapus
+// deletingAction : nama fungsi backend Apps Script yang dipanggil (mis. 'deleteTransaksi', 'hapusTagihan', 'hapusTabungan')
+// deletingSuccessMsg / deletingCallback : pesan toast & callback tambahan setelah sukses hapus
+let deletingId = null;
+let deletingAction = null;
+let deletingSuccessMsg = 'Data berhasil dihapus';
+let deletingCallback = null;
+
+/** Buka modal konfirmasi hapus generic. Dipakai buat Transaksi, Tagihan, dan Target Tabungan
+ * biar semua konsisten pakai modal custom -- gak ada lagi confirm() bawaan browser yang gak nyambung sama tema app. */
+function openConfirmModal(opts){
+  deletingId = opts.id;
+  deletingAction = opts.action;
+  deletingSuccessMsg = opts.successMsg || 'Data berhasil dihapus';
+  deletingCallback = opts.onSuccess || null;
+  document.getElementById('confirmDelTitle').textContent = opts.title || 'Hapus Data?';
+  document.getElementById('confirmDelSub').textContent = opts.subtitle || 'Tindakan ini tidak bisa dibatalkan. Data akan dihapus permanen dari spreadsheet.';
   document.getElementById('modalConfirm').classList.add('show');
+}
+function openConfirm(id){
+  // Kompatibilitas lama: buka modal hapus utk Transaksi.
+  openConfirmModal({
+    id: id, action: 'deleteTransaksi',
+    title: 'Hapus Transaksi?',
+    successMsg: 'Transaksi berhasil dihapus',
+    onSuccess: function(){
+      reloadTransaksiData_().catch(function(err){
+        showToast_('Terhapus, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
+      });
+    }
+  });
 }
 function closeConfirm(){
   document.getElementById('modalConfirm').classList.remove('show');
   deletingId = null;
+  deletingAction = null;
+  deletingCallback = null;
 }
 function confirmDelete(){
   const btn = document.getElementById('btnConfirmDel');
+  const action = deletingAction;
+  const id = deletingId;
+  const successMsg = deletingSuccessMsg;
+  const cb = deletingCallback;
   btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Menghapus...';
   google.script.run
     .withSuccessHandler(function(){
       btn.disabled = false; btn.innerHTML = 'Ya, Hapus';
       closeConfirm();
-      showToast_('Transaksi berhasil dihapus', false);
-      reloadTransaksiData_().catch(function(err){
-        showToast_('Terhapus, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
-      });
+      showToast_(successMsg, false);
+      if (cb) cb();
     })
     .withFailureHandler(function(err){
       btn.disabled = false; btn.innerHTML = 'Ya, Hapus';
-      showToast_('Gagal menghapus: ' + err.message, true);
+      showToast_('Gagal menghapus: ' + ((err&&err.message)||err), true);
     })
-    .deleteTransaksi(deletingId);
+    [action](id);
 }
 
 /* ==================== TOAST ==================== */
