@@ -918,7 +918,12 @@
 <div class="modal-overlay" id="modalBudget">
   <div class="modal" style="max-width:480px;">
     <h3>🎯 Kelola Alokasi Gaji per Kategori</h3>
-    <div class="modal-sub">Bagi pemasukan bulan ini jadi persen per kategori (Esensial = kebutuhan wajib, Non-Esensial = keinginan). Pemasukan bulan ini: <b id="budgetPemasukanInfo">Rp 0</b></div>
+    <div class="modal-sub">Bagi Gaji Bulanan jadi persen per kategori (Esensial = kebutuhan wajib, Non-Esensial = keinginan).</div>
+    <div style="display:flex; align-items:flex-end; gap:8px; margin:12px 0; padding:10px; background:rgba(255,255,255,.03); border-radius:10px;">
+      <div style="flex:1;"><label style="display:block; font-size:11.5px; color:var(--text-2); margin-bottom:4px;">Gaji Bulanan (Rp)</label>
+        <input type="text" inputmode="numeric" id="fmGajiBulanan" placeholder="5.000.000" oninput="formatRibuan(this)"></div>
+      <button class="btn btn-primary" id="btnSimpanGaji" style="padding:10px 14px;" onclick="submitGajiBulanan()">Simpan</button>
+    </div>
     <div id="budgetAllocSummary" style="margin:8px 0; font-size:12.5px; font-weight:600;"></div>
     <div id="budgetListWrap" style="max-height:260px; overflow:auto; margin:12px 0;"></div>
     <div class="form-grid">
@@ -1007,6 +1012,7 @@ function apiHandleResponse_(res){
       deleteTransaksi(id){ wrap(apiPost_('deleteTransaksi', { id: id })); },
       getPengaturan(){ wrap(apiGet_('getPengaturan')); },
       updatePengaturan(payload){ wrap(apiPost_('updatePengaturan', payload)); },
+      setGajiBulanan(payload){ wrap(apiPost_('setGajiBulanan', payload)); },
       getTagihanList(){ wrap(apiGet_('getTagihanList')); },
       addTagihan(payload){ wrap(apiPost_('addTagihan', payload)); },
       updateTagihan(payload){ wrap(apiPost_('updateTagihan', payload)); },
@@ -1051,10 +1057,27 @@ let BUDGET = [];
 // Kategori pemasukan -- dikeluarkan dari dropdown Budget karena budget cuma
 // masuk akal utk kategori pengeluaran (samain dgn urutan getKategoriList() di code.gs).
 const INCOME_KATEGORI = ['Gaji', 'Transfer Masuk', 'Bantuan', 'Penghasilan Lain', 'Pemasukan Lain'];
+// Tarik Tunai cuma mindahin uang rekening->dompet (bukan pengeluaran riil, jumlah yang
+// dipegang tetap sama) -- dikeluarkan dari daftar kategori yang bisa dikasih alokasi Budget.
+const NON_BUDGET_KATEGORI = ['Tarik Tunai'];
+// Kategori yang NETRAL terhadap saldo & pengeluaran per kategori: Tarik Tunai gak
+// mengurangi saldo (uang cuma pindah rekening->dompet, masih milik kamu) dan gak
+// dihitung sbg "pengeluaran" di manapun (Dashboard, Rekap, Runway, Top Pengeluaran).
+// Begitu uang cash itu beneran dipakai, itu dicatat manual sbg transaksi baru
+// (kategori sesuai kebutuhan, mis. Makan & Minum) -- transaksi BARU itu yang
+// kehitung sbg pengeluaran & baru itu yang ngurangin saldo.
+const KATEGORI_NETRAL_SALDO = ['Tarik Tunai'];
+function saldoDelta_(t){
+  if (t.jenis === 'Masuk') return t.jumlah;
+  return KATEGORI_NETRAL_SALDO.includes(t.kategori) ? 0 : -t.jumlah;
+}
+function isPengeluaranRiil_(t){
+  return t.jenis === 'Keluar' && !KATEGORI_NETRAL_SALDO.includes(t.kategori);
+}
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
 
-let PENGATURAN = { tanggalGajian: 25, targetMinimumHarian: 50000 };
+let PENGATURAN = { tanggalGajian: 25, targetMinimumHarian: 50000, gajiBulanan: 0 };
 
 function getPeriodeGajian_(){
   const today = new Date(); today.setHours(0,0,0,0);
@@ -1086,7 +1109,7 @@ function renderRunway(){
   const { berikutnya } = getPeriodeGajian_();
   const sisaHari = Math.max(1, Math.ceil((berikutnya - today) / 86400000));
 
-  const saldoSekarang = DATA.reduce((s,t)=> s + (t.jenis==='Masuk' ? t.jumlah : -t.jumlah), 0);
+  const saldoSekarang = currentSaldo();
   const jatahHarianAman = saldoSekarang / sisaHari;
 
   document.getElementById('runwayJatah').textContent = rupiah(Math.max(0, jatahHarianAman));
@@ -1410,17 +1433,17 @@ function submitSetorTarik(){
 }
 
 /* ==================== BUDGET ALOKASI GAJI (persen per kategori) ====================
- * Rp aktual per kategori = persen% x total pemasukan (Masuk) bulan berjalan.
- * Dikelompokkan Esensial/Non-Esensial biar kelihatan komposisi gaji abis kemana.
+ * Rp aktual per kategori = persen% x Gaji Bulanan -- Gaji Bulanan diisi MANUAL lewat
+ * modal Budget (bukan dihitung otomatis dari transaksi Masuk), biar basisnya murni
+ * gaji pokok, gak kecampur refund/transfer/pemasukan lain-lain yang sifatnya gak rutin.
  */
 function pemasukanBulanIni_(){
-  const curM = thisMonthStr();
-  return DATA.filter(t => t.jenis==='Masuk' && ym(t.tanggal)===curM).reduce((s,t)=>s+t.jumlah,0);
+  return PENGATURAN.gajiBulanan || 0;
 }
 function keluarBulanIniByKategori_(){
   const curM = thisMonthStr();
   const byCat = {};
-  DATA.filter(t => t.jenis==='Keluar' && ym(t.tanggal)===curM)
+  DATA.filter(t => isPengeluaranRiil_(t) && ym(t.tanggal)===curM)
       .forEach(t => { byCat[t.kategori] = (byCat[t.kategori]||0) + t.jumlah; });
   return byCat;
 }
@@ -1435,6 +1458,7 @@ function renderBudget(){
   const body = document.getElementById('budgetBody');
   if (!BUDGET.length){ body.innerHTML = '<div class="delta">Belum ada alokasi budget. Klik "Kelola" untuk menambah.</div>'; renderBudgetWarningBanner_(); return; }
   const pemasukan = pemasukanBulanIni_();
+  if (!pemasukan){ body.innerHTML = '<div class="delta">Gaji Bulanan belum diisi. Klik "Kelola" untuk mengisi dulu.</div>'; renderBudgetWarningBanner_(); return; }
   const terpakaiByCat = keluarBulanIniByKategori_();
   body.innerHTML = BUDGET_GRUPS.map(g => {
     const items = BUDGET.filter(b => b.grup === g);
@@ -1493,15 +1517,32 @@ function renderBudgetWarningBanner_(){
 
 let editingBudgetId = null;
 function pengeluaranKategoriList_(){
-  return KATEGORI.filter(k => !INCOME_KATEGORI.includes(k));
+  return KATEGORI.filter(k => !INCOME_KATEGORI.includes(k) && !NON_BUDGET_KATEGORI.includes(k));
 }
 function openBudgetModal(){
   const sel = document.getElementById('fmBudgetKategori');
   sel.innerHTML = pengeluaranKategoriList_().map(k => `<option value="${k}">${k}</option>`).join('');
-  document.getElementById('budgetPemasukanInfo').textContent = rupiah(pemasukanBulanIni_());
+  document.getElementById('fmGajiBulanan').value = PENGATURAN.gajiBulanan ? Number(PENGATURAN.gajiBulanan).toLocaleString('id-ID') : '';
   renderBudgetListManage_();
   resetFormBudget_();
   document.getElementById('modalBudget').classList.add('show');
+}
+function submitGajiBulanan(){
+  const gajiBulanan = Number(document.getElementById('fmGajiBulanan').value.replace(/\D/g,'')) || 0;
+  const btn = document.getElementById('btnSimpanGaji');
+  btn.disabled = true; btn.textContent = '...';
+  google.script.run
+    .withSuccessHandler(function(p){
+      PENGATURAN = p;
+      btn.disabled = false; btn.textContent = 'Simpan';
+      renderBudgetListManage_(); renderBudget();
+      showToast_('Gaji Bulanan disimpan');
+    })
+    .withFailureHandler(function(err){
+      btn.disabled = false; btn.textContent = 'Simpan';
+      showToast_('Gagal menyimpan: ' + ((err&&err.message)||err), true);
+    })
+    .setGajiBulanan({ gajiBulanan: gajiBulanan });
 }
 function closeBudgetModal(){ document.getElementById('modalBudget').classList.remove('show'); }
 function resetFormBudget_(){
@@ -1802,14 +1843,14 @@ function computeSaldo(list){
   let saldo = 0;
   const saldoMap = {};
   sorted.forEach(t=>{
-    saldo += (t.jenis==='Masuk' ? t.jumlah : -t.jumlah);
+    saldo += saldoDelta_(t);
     saldoMap[t.id] = saldo;
   });
   return list.map(t=>({...t, saldoRunning: saldoMap[t.id]})).sort((a,b)=> a.tanggal===b.tanggal ? b.id-a.id : (a.tanggal<b.tanggal?1:-1));
 }
 function currentSaldo(){
   if(DATA.length===0) return 0;
-  return DATA.reduce((s,t)=> s + (t.jenis==='Masuk'?t.jumlah:-t.jumlah), 0);
+  return DATA.reduce((s,t)=> s + saldoDelta_(t), 0);
 }
 function thisMonthStr(){
   const d = new Date();
@@ -1851,9 +1892,9 @@ function renderDashboard(){
   const prevTx = DATA.filter(t=>ym(t.tanggal)===prevM);
 
   const masukCur = curTx.filter(t=>t.jenis==='Masuk').reduce((s,t)=>s+t.jumlah,0);
-  const keluarCur = curTx.filter(t=>t.jenis==='Keluar').reduce((s,t)=>s+t.jumlah,0);
+  const keluarCur = curTx.filter(isPengeluaranRiil_).reduce((s,t)=>s+t.jumlah,0);
   const masukPrev = prevTx.filter(t=>t.jenis==='Masuk').reduce((s,t)=>s+t.jumlah,0);
-  const keluarPrev = prevTx.filter(t=>t.jenis==='Keluar').reduce((s,t)=>s+t.jumlah,0);
+  const keluarPrev = prevTx.filter(isPengeluaranRiil_).reduce((s,t)=>s+t.jumlah,0);
 
   document.getElementById('cardMasukBulan').textContent = rupiah(masukCur);
   document.getElementById('cardKeluarBulan').textContent = rupiah(keluarCur);
@@ -1890,7 +1931,7 @@ function rowRecentHtml(t){
     <td data-label="Keterangan">${escapeHtml(t.keterangan)}</td>
     <td data-label="Kategori"><span class="tag">${escapeHtml(t.kategori)}</span></td>
     <td data-label="Jenis">${t.jenis==='Masuk'?'⬆️ Masuk':'⬇️ Keluar'}</td>
-    <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}</td>
+    <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}${KATEGORI_NETRAL_SALDO.includes(t.kategori) ? '<div style="font-size:10px; font-weight:600; color:var(--text-2);">saldo tetap</div>' : ''}</td>
   </tr>`;
 }
 function fmtDateShort(s){
@@ -1934,7 +1975,7 @@ function renderTrenChart(){
   if(!chartAvailable()) return;
   const keys = last6MonthsKeys();
   const masuk = keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Masuk').reduce((s,t)=>s+t.jumlah,0));
-  const keluar = keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar').reduce((s,t)=>s+t.jumlah,0));
+  const keluar = keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && isPengeluaranRiil_(t)).reduce((s,t)=>s+t.jumlah,0));
   const ctx = document.getElementById('chartTren');
   if(charts.tren) charts.tren.destroy();
   const theme = chartTheme();
@@ -1965,7 +2006,7 @@ function catColors(n){
 
 function renderPieDash(curTx){
   if(!chartAvailable()) return;
-  const keluar = curTx.filter(t=>t.jenis==='Keluar');
+  const keluar = curTx.filter(isPengeluaranRiil_);
   const byCat = {};
   keluar.forEach(t=> byCat[t.kategori] = (byCat[t.kategori]||0) + t.jumlah);
   const labels = Object.keys(byCat).sort((a,b)=>byCat[b]-byCat[a]);
@@ -2088,7 +2129,7 @@ function renderTable(){
         <td data-label="Keterangan">${escapeHtml(t.keterangan)}</td>
         <td data-label="Kategori"><span class="tag">${escapeHtml(t.kategori)}</span></td>
         <td data-label="Jenis">${t.jenis==='Masuk'?'⬆️ Masuk':'⬇️ Keluar'}</td>
-        <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}</td>
+        <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}${KATEGORI_NETRAL_SALDO.includes(t.kategori) ? '<div style="font-size:10px; font-weight:600; color:var(--text-2);">saldo tetap</div>' : ''}</td>
         <td data-label="Saldo" style="text-align:right;">${rupiah(t.saldoRunning)}</td>
         <td class="td-actions">
           <div class="row-actions">
@@ -2122,7 +2163,7 @@ function renderRekap(){
   const txSet = bulan ? DATA.filter(t=>ym(t.tanggal)===bulan) : DATA;
 
   const masuk = txSet.filter(t=>t.jenis==='Masuk').reduce((s,t)=>s+t.jumlah,0);
-  const keluar = txSet.filter(t=>t.jenis==='Keluar').reduce((s,t)=>s+t.jumlah,0);
+  const keluar = txSet.filter(isPengeluaranRiil_).reduce((s,t)=>s+t.jumlah,0);
   document.getElementById('rMasuk').textContent = rupiah(masuk);
   document.getElementById('rKeluar').textContent = rupiah(keluar);
   document.getElementById('rNet').textContent = rupiah(masuk-keluar);
@@ -2148,7 +2189,7 @@ function prevMonthKey(ymStr){
 }
 function sumByKategori_(txArr){
   const out = {};
-  txArr.filter(t=>t.jenis==='Keluar').forEach(t=> out[t.kategori] = (out[t.kategori]||0) + t.jumlah);
+  txArr.filter(isPengeluaranRiil_).forEach(t=> out[t.kategori] = (out[t.kategori]||0) + t.jumlah);
   return out;
 }
 function renderRincianKategori(bulan){
@@ -2211,7 +2252,7 @@ function renderCatTrend(){
   // kalau dipaksa gabung, 2 dataset beda isi jadi bentrok nama di legend/tooltip.
   const totalPerKat = {};
   keys.forEach(k=>{
-    DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar').forEach(t=>{
+    DATA.filter(t=>ym(t.tanggal)===k && isPengeluaranRiil_(t)).forEach(t=>{
       totalPerKat[t.kategori] = (totalPerKat[t.kategori]||0) + t.jumlah;
     });
   });
@@ -2225,7 +2266,7 @@ function renderCatTrend(){
 
   const datasets = allKats.map((kat,i)=>({
     label: kat,
-    data: keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar' && t.kategori===kat).reduce((s,t)=>s+t.jumlah,0)),
+    data: keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && isPengeluaranRiil_(t) && t.kategori===kat).reduce((s,t)=>s+t.jumlah,0)),
     backgroundColor: colors[i],
     hidden: catTrendHidden.has(kat)
   }));
@@ -2274,7 +2315,7 @@ function renderSaldoKumulatif(){
   let saldo = 0;
   const step = Math.max(1, Math.floor(sorted.length/60));
   sorted.forEach((t,i)=>{
-    saldo += (t.jenis==='Masuk'?t.jumlah:-t.jumlah);
+    saldo += saldoDelta_(t);
     if(i%step===0 || i===sorted.length-1){
       labels.push(fmtDateShort(t.tanggal));
       data.push(saldo);
@@ -2301,7 +2342,7 @@ function renderBar12(){
   if(!chartAvailable()) return;
   const keys = last12MonthsKeys();
   const masuk = keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Masuk').reduce((s,t)=>s+t.jumlah,0));
-  const keluar = keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && t.jenis==='Keluar').reduce((s,t)=>s+t.jumlah,0));
+  const keluar = keys.map(k=> DATA.filter(t=>ym(t.tanggal)===k && isPengeluaranRiil_(t)).reduce((s,t)=>s+t.jumlah,0));
   const ctx = document.getElementById('chartBar12');
   if(charts.bar12) charts.bar12.destroy();
   const theme = chartTheme();
@@ -2324,7 +2365,7 @@ function renderBar12(){
 
 function renderPieRekap(txSet){
   if(!chartAvailable()) return;
-  const keluar = txSet.filter(t=>t.jenis==='Keluar');
+  const keluar = txSet.filter(isPengeluaranRiil_);
   const byCat = {};
   keluar.forEach(t=> byCat[t.kategori] = (byCat[t.kategori]||0) + t.jumlah);
   const labels = Object.keys(byCat).sort((a,b)=>byCat[b]-byCat[a]);
@@ -2345,7 +2386,7 @@ function renderPieRekap(txSet){
 }
 
 function renderTopPengeluaran(txSet){
-  const top = [...txSet].filter(t=>t.jenis==='Keluar').sort((a,b)=>b.jumlah-a.jumlah).slice(0,5);
+  const top = [...txSet].filter(isPengeluaranRiil_).sort((a,b)=>b.jumlah-a.jumlah).slice(0,5);
   const el = document.getElementById('topList');
   if(top.length===0){ el.innerHTML = '<div class="empty-state" style="padding:20px;">Tidak ada data pengeluaran</div>'; return; }
   el.innerHTML = top.map(t=>`
@@ -2396,6 +2437,7 @@ const KATEGORI_RULES_CLIENT = [
   { re: /\b(gaji|payroll|salary)\b/i, kategori: 'Gaji' },
   { re: /(^dari\s|\btransfer\s*masuk\b|\bterima\s*transfer\b|\bkiriman\s*dari\b|\bditransfer(kan)?\b)/i, kategori: 'Transfer Masuk' },
   { re: /\b(biaya\s*admin|admin\s*bank|potongan\s*bank|materai)\b/i, kategori: 'Biaya Admin' },
+  { re: /\b(mamak|pititu|aal|arif|bapak|kak\s*indah)\b/i, kategori: 'Keluarga' },
 
   { re: /\b(pln|pdam|indihome|pulsa|paket\s*data|paket\s*im3|paket\s*indosat|tagihan|wifi|listrik|air|bpjs|cicilan|kredit|gas|iuran|internet)\b/i, kategori: 'Tagihan' },
   { re: /\b(tabungan|nabung|celengan|deposito)\b/i, kategori: 'Tabungan' },
@@ -2406,11 +2448,8 @@ const KATEGORI_RULES_CLIENT = [
   { re: /\b(beli|belanja|baju|sepatu|celana|tas|skincare|kosmetik|elektronik|sabun|sampo)\b/i, kategori: 'Belanja' },
   { re: /\b(jajan|snack|cemilan|cilok|cimol|batagor|gorengan|es\s*teh|es\s*krim|chiki|permen)\b/i, kategori: 'Jajan Harian' },
   { re: /\b(makan|ayam|nasi|mie|bakso|solaria|gacoan|kfc|mcd|cafe|caf(e|é)|kopi|teh|minum|sarapan|warteg|padang|gofood|grabfood|resto|restoran|sushi|pizza|burger)\b/i, kategori: 'Makan & Minum' },
-  { re: /\b(tarik\s*tuna?i|tarik\s*tunia|top\s*up|isi\s*saldo|gopay|shopeepay|shoopepay|ovo|dana|linkaja|atm)\b/i, kategori: 'Tarik Tunai/Top Up' },
-
-  // Catch-all umum -- ditaruh PALING TERAKHIR biar gak nyerobot kategori spesifik
-  // di atas (mis. "bayar parkir" harus kena Transportasi, bukan sini).
-  { re: /\b(tf\s*ke|transfer\/?bayar|ganti\s*uang|bayar)\b/i, kategori: 'Transfer/Bayar' }
+  { re: /\b(tarik\s*tuna?i|tarik\s*tunia|atm)\b/i, kategori: 'Tarik Tunai' },
+  { re: /\b(top\s*up|isi\s*saldo|gopay|shopeepay|shoopepay|ovo|dana|linkaja)\b/i, kategori: 'Top Up' }
 ];
 function autoKategoriClient_(keterangan, jenis){
   const k = (keterangan || '').trim();
@@ -2428,7 +2467,9 @@ const KATEGORI_KEYWORD_HINTS = [
   { label:'gaji', kategori:'Gaji' },
   { label:'bonus', kategori:'Penghasilan Lain' },
   { label:'bantuan', kategori:'Bantuan' },
-  { label:'tarik tunai', kategori:'Tarik Tunai/Top Up' },
+  { label:'tarik tunai', kategori:'Tarik Tunai' },
+  { label:'top up', kategori:'Top Up' },
+  { label:'mamak', kategori:'Keluarga' },
   { label:'tabungan', kategori:'Tabungan' }
 ];
 function updateKategoriBadge_(){
