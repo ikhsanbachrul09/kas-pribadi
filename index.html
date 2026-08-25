@@ -1066,13 +1066,20 @@ const NON_BUDGET_KATEGORI = ['Tarik Tunai'];
 // Begitu uang cash itu beneran dipakai, itu dicatat manual sbg transaksi baru
 // (kategori sesuai kebutuhan, mis. Makan & Minum) -- transaksi BARU itu yang
 // kehitung sbg pengeluaran & baru itu yang ngurangin saldo.
+// Aturan netral ini CUMA berlaku mulai tanggal cutoff -- transaksi Tarik Tunai
+// tgl 25 Agustus 2026 ke belakang tetap dihitung pengeluaran riil (perilaku lama),
+// biar histori yang udah kepakai gak berubah retroaktif.
 const KATEGORI_NETRAL_SALDO = ['Tarik Tunai'];
+const TARIK_TUNAI_NETRAL_SEJAK = '2026-08-26';
+function isTransaksiNetralSaldo_(t){
+  return KATEGORI_NETRAL_SALDO.includes(t.kategori) && t.tanggal >= TARIK_TUNAI_NETRAL_SEJAK;
+}
 function saldoDelta_(t){
   if (t.jenis === 'Masuk') return t.jumlah;
-  return KATEGORI_NETRAL_SALDO.includes(t.kategori) ? 0 : -t.jumlah;
+  return isTransaksiNetralSaldo_(t) ? 0 : -t.jumlah;
 }
 function isPengeluaranRiil_(t){
-  return t.jenis === 'Keluar' && !KATEGORI_NETRAL_SALDO.includes(t.kategori);
+  return t.jenis === 'Keluar' && !isTransaksiNetralSaldo_(t);
 }
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
@@ -1931,7 +1938,7 @@ function rowRecentHtml(t){
     <td data-label="Keterangan">${escapeHtml(t.keterangan)}</td>
     <td data-label="Kategori"><span class="tag">${escapeHtml(t.kategori)}</span></td>
     <td data-label="Jenis">${t.jenis==='Masuk'?'⬆️ Masuk':'⬇️ Keluar'}</td>
-    <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}${KATEGORI_NETRAL_SALDO.includes(t.kategori) ? '<div style="font-size:10px; font-weight:600; color:var(--text-2);">saldo tetap</div>' : ''}</td>
+    <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}${isTransaksiNetralSaldo_(t) ? '<div style="font-size:10px; font-weight:600; color:var(--text-2);">saldo tetap</div>' : ''}</td>
   </tr>`;
 }
 function fmtDateShort(s){
@@ -2129,7 +2136,7 @@ function renderTable(){
         <td data-label="Keterangan">${escapeHtml(t.keterangan)}</td>
         <td data-label="Kategori"><span class="tag">${escapeHtml(t.kategori)}</span></td>
         <td data-label="Jenis">${t.jenis==='Masuk'?'⬆️ Masuk':'⬇️ Keluar'}</td>
-        <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}${KATEGORI_NETRAL_SALDO.includes(t.kategori) ? '<div style="font-size:10px; font-weight:600; color:var(--text-2);">saldo tetap</div>' : ''}</td>
+        <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}${isTransaksiNetralSaldo_(t) ? '<div style="font-size:10px; font-weight:600; color:var(--text-2);">saldo tetap</div>' : ''}</td>
         <td data-label="Saldo" style="text-align:right;">${rupiah(t.saldoRunning)}</td>
         <td class="td-actions">
           <div class="row-actions">
