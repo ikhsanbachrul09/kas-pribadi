@@ -542,7 +542,13 @@
         <span class="ic">💳</span><span>Transaksi</span>
       </div>
       <div class="nav-item" data-page="rekap" onclick="goPage('rekap')">
-        <span class="ic">📈</span><span>Rekap &amp; Laporan</span>
+        <span class="ic">📈</span><span>Rekap</span>
+      </div>
+      <div class="nav-item" data-page="tren" onclick="goPage('tren')">
+        <span class="ic">🔍</span><span>Tren &amp; Analisis</span>
+      </div>
+      <div class="nav-item" data-page="rencana" onclick="goPage('rencana')">
+        <span class="ic">🗂️</span><span>Rencana</span>
       </div>
     </nav>
 
@@ -608,30 +614,6 @@
           <div id="runwayWarning" style="display:none; margin-top:12px; padding:10px 14px; border-radius:10px; font-size:13px; line-height:1.5;"></div>
           </div>
 
-        <div class="panel" id="panelTagihan">
-  <div class="panel-head">
-    <h3>📅 Tagihan Mendatang</h3>
-    <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openTagihanModal()">⚙️ Kelola</span>
-  </div>
-  <div id="tagihanBody"><div class="delta">Memuat...</div></div>
-</div>
-
-<div class="panel" id="panelTabungan">
-  <div class="panel-head">
-    <h3>🎯 Target Tabungan</h3>
-    <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openTabunganModal()">⚙️ Kelola</span>
-  </div>
-  <div id="tabunganBody"><div class="delta">Memuat...</div></div>
-</div>
-
-<div class="panel" id="panelBudget">
-  <div class="panel-head">
-    <h3>🎯 Alokasi Gaji per Kategori</h3>
-    <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openBudgetModal()">⚙️ Kelola</span>
-  </div>
-  <div id="budgetBody"><div class="delta">Memuat...</div></div>
-</div>
-
         <div class="row-2col">
           <div class="panel">
             <div class="panel-head">
@@ -660,6 +642,33 @@
               <tbody id="tblRecent"></tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <!-- ================= RENCANA (Tagihan, Tabungan, Budget) ================= -->
+      <section class="page" id="page-rencana">
+        <div class="panel" id="panelTagihan">
+          <div class="panel-head">
+            <h3>📅 Tagihan Mendatang</h3>
+            <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openTagihanModal()">⚙️ Kelola</span>
+          </div>
+          <div id="tagihanBody"><div class="delta">Memuat...</div></div>
+        </div>
+
+        <div class="panel" id="panelTabungan">
+          <div class="panel-head">
+            <h3>🎯 Target Tabungan</h3>
+            <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openTabunganModal()">⚙️ Kelola</span>
+          </div>
+          <div id="tabunganBody"><div class="delta">Memuat...</div></div>
+        </div>
+
+        <div class="panel" id="panelBudget">
+          <div class="panel-head">
+            <h3>🎯 Alokasi Gaji per Kategori</h3>
+            <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openBudgetModal()">⚙️ Kelola</span>
+          </div>
+          <div id="budgetBody"><div class="delta">Memuat...</div></div>
         </div>
       </section>
 
@@ -777,6 +786,10 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- ================= TREN & ANALISIS ================= -->
+      <section class="page" id="page-tren">
         <div class="row-2col">
           <div class="panel">
             <div class="panel-head"><h3>Perbandingan Bulanan (12 bulan)</h3><span class="hint">Masuk vs Keluar</span></div>
@@ -1738,6 +1751,7 @@ window.addEventListener('DOMContentLoaded', () => {
       // Chart.js baru siap setelah data sudah tampil lebih dulu -> render ulang grafik
       renderDashboard();
       renderRekap();
+      renderTren();
     } else if(!ok){
       showToast_('Chart.js gagal dimuat dari semua sumber. Grafik tidak akan tampil, tapi data & CRUD tetap berfungsi normal.', true);
     }
@@ -1807,6 +1821,7 @@ function refreshAll(showToast, isInitial){
       applyFilters();
       renderDashboard();
       renderRekap();
+      renderTren();
       renderRunway();
       renderTagihan();
       renderTabungan();
@@ -1877,12 +1892,16 @@ function goPage(page){
   const titles = {
     dashboard:['Dashboard','Ringkasan arus kas kamu'],
     transaksi:['Transaksi','Kelola semua catatan pemasukan & pengeluaran'],
-    rekap:['Rekap & Laporan','Pantau arus kas lebih dalam']
+    rekap:['Rekap','Ringkasan bulan yang dipilih'],
+    tren:['Tren & Analisis','Pola pengeluaran jangka panjang'],
+    rencana:['Rencana','Tagihan rutin, target tabungan & alokasi budget']
   };
   document.getElementById('pageTitle').textContent = titles[page][0];
   document.getElementById('pageSub').textContent = titles[page][1];
   closeSidebar();
   if(page==='rekap') renderRekap();
+  if(page==='tren') renderTren();
+  if(page==='rencana'){ renderTagihan(); renderTabungan(); renderBudget(); }
 }
 function openSidebar(){ document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('show'); }
 function closeSidebar(){ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('show'); }
@@ -2178,13 +2197,22 @@ function renderRekap(){
 
   const hintTxt = bulan ? monthLabel(bulan) : 'Sepanjang waktu';
   document.getElementById('rekapPieHint').textContent = hintTxt;
-  document.getElementById('topHint').textContent = hintTxt;
 
   renderSaldoKumulatif();
-  renderBar12();
   renderPieRekap(txSet);
-  renderTopPengeluaran(txSet);
   renderRincianKategori(bulan);
+}
+
+/* ==================== TREN & ANALISIS PAGE ==================== */
+function renderTren(){
+  if(DATA.length===0) return;
+  const bulan = document.getElementById('rBulan').value;
+  const txSet = bulan ? DATA.filter(t=>ym(t.tanggal)===bulan) : DATA;
+  const hintTxt = bulan ? monthLabel(bulan) : 'Sepanjang waktu';
+  document.getElementById('topHint').textContent = hintTxt;
+
+  renderBar12();
+  renderTopPengeluaran(txSet);
   renderCatTrend();
 }
 
