@@ -626,7 +626,7 @@
 
 <div class="panel" id="panelBudget">
   <div class="panel-head">
-    <h3>🎯 Budget per Kategori</h3>
+    <h3>🎯 Alokasi Gaji per Kategori</h3>
     <span class="hint" style="cursor:pointer; color:var(--cyan-2);" onclick="openBudgetModal()">⚙️ Kelola</span>
   </div>
   <div id="budgetBody"><div class="delta">Memuat...</div></div>
@@ -916,15 +916,21 @@
 </div>
 
 <div class="modal-overlay" id="modalBudget">
-  <div class="modal" style="max-width:460px;">
-    <h3>🎯 Kelola Budget per Kategori</h3>
-    <div class="modal-sub">Batas belanja bulanan per kategori. Kamu bakal diingatkan di Dashboard begitu udah nyenggol 80% atau lewat limit.</div>
-    <div id="budgetListWrap" style="max-height:240px; overflow:auto; margin:12px 0;"></div>
+  <div class="modal" style="max-width:480px;">
+    <h3>🎯 Kelola Alokasi Gaji per Kategori</h3>
+    <div class="modal-sub">Bagi pemasukan bulan ini jadi persen per kategori (Esensial = kebutuhan wajib, Non-Esensial = keinginan). Pemasukan bulan ini: <b id="budgetPemasukanInfo">Rp 0</b></div>
+    <div id="budgetAllocSummary" style="margin:8px 0; font-size:12.5px; font-weight:600;"></div>
+    <div id="budgetListWrap" style="max-height:260px; overflow:auto; margin:12px 0;"></div>
     <div class="form-grid">
       <div class="field-full"><label>Kategori</label>
         <select id="fmBudgetKategori"></select></div>
-      <div class="field-full"><label>Limit Bulanan (Rp)</label>
-        <input type="text" inputmode="numeric" id="fmBudgetLimit" placeholder="1.000.000" oninput="formatRibuan(this)"></div>
+      <div class="field-full"><label>Grup</label>
+        <select id="fmBudgetGrup">
+          <option value="Esensial">Esensial (kebutuhan wajib)</option>
+          <option value="Non-Esensial">Non-Esensial (keinginan)</option>
+        </select></div>
+      <div class="field-full"><label>Persen dari Pemasukan (%)</label>
+        <input type="number" min="0" max="100" step="0.5" id="fmBudgetPersen" placeholder="mis. 10"></div>
       <div class="err-msg" id="budgetErr"></div>
       <div class="modal-actions">
         <button class="btn btn-ghost" onclick="closeBudgetModal()">Tutup</button>
@@ -1403,10 +1409,14 @@ function submitSetorTarik(){
   else runner.tarikTabungan({ id: id, jumlah: jumlah });
 }
 
-/* ==================== BUDGET PER KATEGORI ====================
- * Progress terpakai/limit dihitung di client dari DATA (pengeluaran bulan
- * berjalan per kategori) -- BUDGET dari backend cuma nyimpen id/kategori/limit.
+/* ==================== BUDGET ALOKASI GAJI (persen per kategori) ====================
+ * Rp aktual per kategori = persen% x total pemasukan (Masuk) bulan berjalan.
+ * Dikelompokkan Esensial/Non-Esensial biar kelihatan komposisi gaji abis kemana.
  */
+function pemasukanBulanIni_(){
+  const curM = thisMonthStr();
+  return DATA.filter(t => t.jenis==='Masuk' && ym(t.tanggal)===curM).reduce((s,t)=>s+t.jumlah,0);
+}
 function keluarBulanIniByKategori_(){
   const curM = thisMonthStr();
   const byCat = {};
@@ -1414,28 +1424,46 @@ function keluarBulanIniByKategori_(){
       .forEach(t => { byCat[t.kategori] = (byCat[t.kategori]||0) + t.jumlah; });
   return byCat;
 }
+function budgetRupiah_(persen, pemasukan){ return Math.round(pemasukan * (persen/100)); }
 function budgetStatus_(pct){
-  if (pct >= 100) return { warna: 'var(--danger-2)', label: 'Lewat limit' };
-  if (pct >= 80) return { warna: 'var(--warn)', label: 'Mendekati limit' };
+  if (pct >= 100) return { warna: 'var(--danger-2)', label: 'Lewat alokasi' };
+  if (pct >= 80) return { warna: 'var(--warn)', label: 'Mendekati alokasi' };
   return { warna: 'var(--green)', label: null };
 }
+const BUDGET_GRUPS = ['Esensial', 'Non-Esensial'];
 function renderBudget(){
   const body = document.getElementById('budgetBody');
-  if (!BUDGET.length){ body.innerHTML = '<div class="delta">Belum ada budget kategori. Klik "Kelola" untuk menambah.</div>'; renderBudgetWarningBanner_(); return; }
+  if (!BUDGET.length){ body.innerHTML = '<div class="delta">Belum ada alokasi budget. Klik "Kelola" untuk menambah.</div>'; renderBudgetWarningBanner_(); return; }
+  const pemasukan = pemasukanBulanIni_();
   const terpakaiByCat = keluarBulanIniByKategori_();
-  body.innerHTML = BUDGET.map(b => {
-    const terpakai = terpakaiByCat[b.kategori] || 0;
-    const rawPct = Math.round((terpakai / b.limit) * 100);
-    const barPct = Math.min(100, rawPct);
-    const st = budgetStatus_(rawPct);
+  body.innerHTML = BUDGET_GRUPS.map(g => {
+    const items = BUDGET.filter(b => b.grup === g);
+    if (!items.length) return '';
+    const totalPersen = items.reduce((s,b)=>s+b.persen,0);
+    const totalAlokasi = budgetRupiah_(totalPersen, pemasukan);
+    const totalTerpakai = items.reduce((s,b)=> s+(terpakaiByCat[b.kategori]||0), 0);
+    const rows = items.map(b => {
+      const alokasi = budgetRupiah_(b.persen, pemasukan);
+      const terpakai = terpakaiByCat[b.kategori] || 0;
+      const rawPct = alokasi > 0 ? Math.round((terpakai / alokasi) * 100) : 0;
+      const barPct = Math.min(100, rawPct);
+      const st = budgetStatus_(rawPct);
+      return `
+      <div style="padding:8px 0 8px 14px; border-bottom:1px solid #0e1e2b;">
+        <div style="display:flex; justify-content:space-between; font-size:12.5px;">
+          <span>${escapeHtml(b.kategori)} <span style="color:var(--text-2);">(${b.persen}%)</span></span>
+          <span style="color:${st.warna}; font-weight:600;">${rupiah(terpakai)} / ${rupiah(alokasi)}</span>
+        </div>
+        <div class="progress-bar" style="height:6px;"><div class="progress-bar-fill" style="width:${barPct}%; background:${st.warna};"></div></div>
+      </div>`;
+    }).join('');
     return `
-    <div style="padding:10px 0; border-bottom:1px solid #0e1e2b;">
-      <div style="display:flex; justify-content:space-between; align-items:center; font-size:13.5px;">
-        <span style="font-weight:600;">${escapeHtml(b.kategori)}</span>
-        <span style="color:${st.warna}; font-weight:700;">${rupiah(terpakai)} / ${rupiah(b.limit)}</span>
+    <div style="margin-bottom:6px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; font-weight:700; font-size:13.5px; padding:6px 0;">
+        <span>${g==='Esensial'?'🧾':'🎈'} ${g} <span style="color:var(--text-2); font-weight:500;">(${totalPersen}% dari pemasukan)</span></span>
+        <span>${rupiah(totalTerpakai)} / ${rupiah(totalAlokasi)}</span>
       </div>
-      <div class="progress-bar"><div class="progress-bar-fill" style="width:${barPct}%; background:${st.warna};"></div></div>
-      ${st.label ? `<div style="font-size:11.5px; margin-top:4px; color:${st.warna}; font-weight:600;">${st.label} (${rawPct}%)</div>` : ''}
+      ${rows}
     </div>`;
   }).join('');
   renderBudgetWarningBanner_();
@@ -1443,21 +1471,23 @@ function renderBudget(){
 function renderBudgetWarningBanner_(){
   const banner = document.getElementById('budgetWarningBanner');
   if (!BUDGET.length){ banner.style.display='none'; return; }
+  const pemasukan = pemasukanBulanIni_();
   const terpakaiByCat = keluarBulanIniByKategori_();
   const kena = BUDGET.map(b => {
+    const alokasi = budgetRupiah_(b.persen, pemasukan);
     const terpakai = terpakaiByCat[b.kategori] || 0;
-    return { kategori: b.kategori, pct: Math.round((terpakai / b.limit) * 100) };
+    const pct = alokasi > 0 ? Math.round((terpakai / alokasi) * 100) : 0;
+    return { kategori: b.kategori, pct };
   }).filter(x => x.pct >= 80).sort((a,b) => b.pct - a.pct);
 
   if (!kena.length){ banner.style.display='none'; return; }
   const lewat = kena.filter(x => x.pct >= 100);
-  const mendekati = kena.filter(x => x.pct < 100);
   const warna = lewat.length ? 'var(--danger-2)' : 'var(--warn)';
   const parts = kena.map(x => `${escapeHtml(x.kategori)} (${x.pct}%)`).join(', ');
   banner.style.background = lewat.length ? 'rgba(255,93,122,.1)' : 'rgba(255,207,92,.1)';
   banner.style.border = '1px solid ' + warna;
   banner.style.color = warna;
-  banner.innerHTML = '⚠️ <b>' + (lewat.length ? 'Lewat budget: ' : 'Mendekati budget: ') + '</b>' + parts;
+  banner.innerHTML = '⚠️ <b>' + (lewat.length ? 'Lewat alokasi: ' : 'Mendekati alokasi: ') + '</b>' + parts;
   banner.style.display = 'block';
 }
 
@@ -1468,6 +1498,7 @@ function pengeluaranKategoriList_(){
 function openBudgetModal(){
   const sel = document.getElementById('fmBudgetKategori');
   sel.innerHTML = pengeluaranKategoriList_().map(k => `<option value="${k}">${k}</option>`).join('');
+  document.getElementById('budgetPemasukanInfo').textContent = rupiah(pemasukanBulanIni_());
   renderBudgetListManage_();
   resetFormBudget_();
   document.getElementById('modalBudget').classList.add('show');
@@ -1475,32 +1506,50 @@ function openBudgetModal(){
 function closeBudgetModal(){ document.getElementById('modalBudget').classList.remove('show'); }
 function resetFormBudget_(){
   editingBudgetId = null;
-  document.getElementById('fmBudgetLimit').value='';
-  document.getElementById('budgetErr').textContent='';
-  document.getElementById('btnAddBudget').textContent='Tambah Budget';
+  document.getElementById('fmBudgetGrup').value = 'Esensial';
+  document.getElementById('fmBudgetPersen').value = '';
+  document.getElementById('budgetErr').textContent = '';
+  document.getElementById('btnAddBudget').textContent = 'Tambah Budget';
   const cancelEl = document.getElementById('budgetCancelEdit');
-  if(cancelEl) cancelEl.remove();
+  if (cancelEl) cancelEl.remove();
 }
 function renderBudgetListManage_(){
   const wrap = document.getElementById('budgetListWrap');
-  wrap.innerHTML = BUDGET.length ? BUDGET.map(b => `
-    <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:13px;">
-      <span>${escapeHtml(b.kategori)} — ${rupiah(b.limit)}/bln</span>
-      <div style="display:flex; gap:6px;">
-        <button class="icon-btn edit" onclick="editBudget(${b.id})" title="Edit">✎</button>
-        <button class="icon-btn del" onclick="hapusBudget(${b.id})" title="Hapus">🗑️</button>
-      </div>
-    </div>`).join('') : '<div class="delta">Belum ada budget.</div>';
+  wrap.innerHTML = BUDGET.length ? BUDGET_GRUPS.map(g => {
+    const items = BUDGET.filter(b => b.grup === g);
+    if (!items.length) return '';
+    return `<div style="font-size:11px; color:var(--text-2); text-transform:uppercase; font-weight:700; letter-spacing:.6px; margin:10px 0 4px;">${g}</div>` +
+      items.map(b => `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:13px;">
+        <span>${escapeHtml(b.kategori)} — ${b.persen}%</span>
+        <div style="display:flex; gap:6px;">
+          <button class="icon-btn edit" onclick="editBudget(${b.id})" title="Edit">✎</button>
+          <button class="icon-btn del" onclick="hapusBudget(${b.id})" title="Hapus">🗑️</button>
+        </div>
+      </div>`).join('');
+  }).join('') : '<div class="delta">Belum ada budget.</div>';
+  renderBudgetAllocSummary_();
+}
+function renderBudgetAllocSummary_(){
+  const el = document.getElementById('budgetAllocSummary');
+  const total = BUDGET.reduce((s,b)=>s+b.persen, 0);
+  const sisa = 100 - total;
+  const warna = total > 100 ? 'var(--danger-2)' : (total === 100 ? 'var(--green)' : 'var(--text-2)');
+  el.style.color = warna;
+  el.textContent = total > 100
+    ? `Total teralokasi ${total}% — lewat 100%, kurangi salah satu kategori`
+    : `Total teralokasi ${total}% dari pemasukan, sisa ${sisa}% belum dialokasikan`;
 }
 function editBudget(id){
   const b = BUDGET.find(x => x.id === id);
   if (!b) return;
   editingBudgetId = id;
   document.getElementById('fmBudgetKategori').value = b.kategori;
-  document.getElementById('fmBudgetLimit').value = Number(b.limit).toLocaleString('id-ID');
+  document.getElementById('fmBudgetGrup').value = b.grup;
+  document.getElementById('fmBudgetPersen').value = b.persen;
   document.getElementById('budgetErr').textContent = '';
   document.getElementById('btnAddBudget').textContent = 'Simpan Perubahan';
-  if(!document.getElementById('budgetCancelEdit')){
+  if (!document.getElementById('budgetCancelEdit')){
     const cancel = document.createElement('div');
     cancel.id = 'budgetCancelEdit';
     cancel.style.cssText = 'font-size:12px; color:var(--cyan-2); cursor:pointer; text-align:center;';
@@ -1511,9 +1560,11 @@ function editBudget(id){
 }
 function submitBudget(){
   const kategori = document.getElementById('fmBudgetKategori').value;
-  const limit = Number(document.getElementById('fmBudgetLimit').value.replace(/\D/g,''));
+  const grup = document.getElementById('fmBudgetGrup').value;
+  const persen = Number(document.getElementById('fmBudgetPersen').value);
   if (!kategori){ document.getElementById('budgetErr').textContent='Kategori wajib dipilih'; return; }
-  if (!limit){ document.getElementById('budgetErr').textContent='Limit wajib diisi'; return; }
+  if (!persen || persen<=0){ document.getElementById('budgetErr').textContent='Persen wajib diisi, lebih dari 0'; return; }
+  if (persen>100){ document.getElementById('budgetErr').textContent='Persen gak mungkin lebih dari 100'; return; }
   const btn = document.getElementById('btnAddBudget');
   const btnLabelIdle = editingBudgetId ? 'Simpan Perubahan' : 'Tambah Budget';
   btn.disabled=true; btn.textContent='Menyimpan...';
@@ -1532,16 +1583,16 @@ function submitBudget(){
     .withFailureHandler(function(err){ btn.disabled=false; btn.textContent=btnLabelIdle; document.getElementById('budgetErr').textContent=(err&&err.message)||'Gagal menyimpan'; });
 
   if (editingBudgetId){
-    runner.updateBudget({ id: editingBudgetId, kategori: kategori, limit: limit });
+    runner.updateBudget({ id: editingBudgetId, kategori: kategori, grup: grup, persen: persen });
   } else {
-    runner.addBudget({ kategori: kategori, limit: limit });
+    runner.addBudget({ kategori: kategori, grup: grup, persen: persen });
   }
 }
 function hapusBudget(id){
   openConfirmModal({
     id: id, action: 'deleteBudget',
     title: 'Hapus Budget?',
-    subtitle: 'Batas budget kategori ini akan dihapus permanen.',
+    subtitle: 'Alokasi persen kategori ini akan dihapus permanen.',
     successMsg: 'Budget dihapus',
     onSuccess: function(){
       BUDGET = BUDGET.filter(b=>b.id!==id);
