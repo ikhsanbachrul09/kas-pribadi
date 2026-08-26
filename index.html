@@ -157,6 +157,8 @@
   .page{display:none; animation:fadeUp .35s ease;}
   .page.active{display:block;}
   @keyframes fadeUp{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
+  tr.row-loading{opacity:.5; transition:opacity .15s ease;}
+  tr.row-loading td{pointer-events:none;}
 
   /* ---------- CARDS / GRID ---------- */
   .grid-cards{display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:22px;}
@@ -287,6 +289,8 @@
   tbody tr:hover{background:#0a1a26;}
   tbody tr:last-child td{border-bottom:none;}
   .tag{display:inline-flex; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:600; background:#102838; color:var(--text-1); border:1px solid var(--border);}
+  .tag.tag-income{background:rgba(42,245,193,.12); border-color:rgba(42,245,193,.4); color:var(--green);}
+  .tag.tag-expense{background:rgba(255,93,122,.12); border-color:rgba(255,93,122,.4); color:var(--danger-2);}
   .amt{font-weight:700; font-family:'Space Grotesk',sans-serif;}
   .amt.masuk{color:var(--green);}
   .amt.keluar{color:var(--danger-2);}
@@ -443,7 +447,7 @@
       order:4; flex:1 1 auto; min-width:0; font-size:11.5px; color:var(--text-2);
     }
     #tblRecent tbody td:nth-of-type(3) .tag, #tblTransaksi tbody td:nth-of-type(3) .tag{
-      background:none; padding:0; border:none; color:inherit; font-weight:500;
+      background:none; padding:0; border:none; font-weight:600;
     }
 
     /* Sembunyikan kolom Jenis (sudah terwakili tanda +/- dan warna di Jumlah) */
@@ -601,6 +605,20 @@
             <div class="delta" id="cardAdminSub">Total potongan "ad" bulan ini</div>
           </div>
         </div>
+
+      <div class="panel" id="panelHealthScore">
+        <div class="panel-head">
+          <h3>🩺 Skor Kesehatan Kas</h3>
+          <span class="hint">Runway + Budget + Saving Rate bulan ini</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:24px; flex-wrap:wrap;">
+          <div style="text-align:center; min-width:90px;">
+            <div class="num" id="healthScoreNum" style="font-size:38px; line-height:1;">-</div>
+            <div class="delta" id="healthScoreLabel">Memuat...</div>
+          </div>
+          <div style="flex:1 1 240px; display:flex; flex-direction:column; gap:12px;" id="healthScoreBreakdown"></div>
+        </div>
+      </div>
 
       <div id="budgetWarningBanner" style="display:none; margin-bottom:16px; padding:12px 16px; border-radius:12px; font-size:13px; line-height:1.6;"></div>
 
@@ -1070,6 +1088,10 @@ let BUDGET = [];
 // Kategori pemasukan -- dikeluarkan dari dropdown Budget karena budget cuma
 // masuk akal utk kategori pengeluaran (samain dgn urutan getKategoriList() di code.gs).
 const INCOME_KATEGORI = ['Gaji', 'Transfer Masuk', 'Bantuan', 'Penghasilan Lain', 'Pemasukan Lain'];
+// Buat pewarnaan tag kategori di tabel: hijau = kategori pemasukan, merah = pengeluaran.
+function kategoriTagClass_(kategori){
+  return INCOME_KATEGORI.includes(kategori) ? 'tag-income' : 'tag-expense';
+}
 // Tarik Tunai cuma mindahin uang rekening->dompet (bukan pengeluaran riil, jumlah yang
 // dipegang tetap sama) -- dikeluarkan dari daftar kategori yang bisa dikasih alokasi Budget.
 const NON_BUDGET_KATEGORI = ['Tarik Tunai'];
@@ -1142,6 +1164,7 @@ function renderRunway(){
     warnEl.style.background = 'rgba(80,220,150,.12)';
     warnEl.style.color = '#4ade80';
     warnEl.textContent = '✅ Aman, jatah harian masih di atas target minimum (' + rupiah(PENGATURAN.targetMinimumHarian) + '/hari).';
+    renderHealthScore();
     return;
   }
 
@@ -1153,6 +1176,89 @@ function renderRunway(){
   } else {
     warnEl.innerHTML = '🚨 Saldo saat ini (' + rupiah(saldoSekarang) + ') tidak akan pernah cukup memberi jatah di atas ' + rupiah(PENGATURAN.targetMinimumHarian) + '/hari sebelum gajian berikutnya, walau tidak belanja sama sekali. Perlu tambahan pemasukan.';
   }
+  renderHealthScore();
+}
+
+/* ==================== SKOR KESEHATAN KAS ====================
+ * Gabungan 3 sinyal jadi satu angka 0-100 biar sekali lihat langsung tau
+ * kondisi kas bulan ini, tanpa harus buka Runway + Budget + Rekap satu-satu:
+ *  - Runway: seberapa aman jatah harian dibanding target minimum.
+ *  - Budget: seberapa jauh alokasi gaji per kategori masih tersisa.
+ *  - Saving Rate: seberapa besar sisa pemasukan bulan ini yang gak kepakai.
+ * Komponen yang datanya belum ada (misal Budget belum diisi) dilewati,
+ * skor akhir = rata-rata komponen yang tersedia saja. */
+function renderHealthScore(){
+  const numEl = document.getElementById('healthScoreNum');
+  if(!numEl) return;
+  const labelEl = document.getElementById('healthScoreLabel');
+  const breakEl = document.getElementById('healthScoreBreakdown');
+
+  // A. Runway
+  const today = new Date(); today.setHours(0,0,0,0);
+  const { berikutnya } = getPeriodeGajian_();
+  const sisaHari = Math.max(1, Math.ceil((berikutnya - today) / 86400000));
+  const saldoSekarang = currentSaldo();
+  const jatahHarianAman = saldoSekarang / sisaHari;
+  const target = PENGATURAN.targetMinimumHarian || 0;
+  const ratioRunway = target > 0 ? (jatahHarianAman / target) : 1;
+  const scoreRunway = Math.max(0, Math.min(100, Math.round(ratioRunway * 100)));
+
+  // B. Budget (skip kalau belum diatur / gaji bulanan belum diisi)
+  let scoreBudget = null, subBudget = 'Belum diatur';
+  if (BUDGET.length && pemasukanBulanIni_() > 0){
+    const pemasukan = pemasukanBulanIni_();
+    const terpakaiByCat = keluarBulanIniByKategori_();
+    const totalAlokasi = BUDGET.reduce((s,b)=> s + budgetRupiah_(b.persen, pemasukan), 0);
+    const totalTerpakai = BUDGET.reduce((s,b)=> s + (terpakaiByCat[b.kategori]||0), 0);
+    const pctUsage = totalAlokasi > 0 ? Math.round((totalTerpakai/totalAlokasi)*100) : 0;
+    scoreBudget = Math.max(0, Math.min(100, 100 - pctUsage));
+    subBudget = 'Terpakai ' + pctUsage + '% dari alokasi';
+  }
+
+  // C. Saving Rate bulan ini (skip kalau belum ada pemasukan tercatat)
+  const curM = thisMonthStr();
+  const curTx = DATA.filter(t=>ym(t.tanggal)===curM);
+  const masukCur = curTx.filter(t=>t.jenis==='Masuk').reduce((s,t)=>s+t.jumlah,0);
+  const keluarCur = curTx.filter(isPengeluaranRiil_).reduce((s,t)=>s+t.jumlah,0);
+  let scoreSaving = null, subSaving = 'Belum ada pemasukan bulan ini';
+  if (masukCur > 0){
+    const savingRate = (masukCur - keluarCur) / masukCur;
+    const savingRatePct = Math.round(savingRate*100);
+    scoreSaving = Math.max(0, Math.min(100, Math.round(50 + savingRate*150)));
+    subSaving = (savingRatePct>=0?'Sisa ':'Minus ') + Math.abs(savingRatePct) + '% dari pemasukan';
+  }
+
+  const parts = [
+    { label:'Runway', score:scoreRunway, sub: sisaHari + ' hari lagi ke gajian' },
+    { label:'Budget', score:scoreBudget, sub: subBudget },
+    { label:'Saving Rate', score:scoreSaving, sub: subSaving }
+  ];
+  const active = parts.filter(p=>p.score!==null);
+  const total = active.length ? Math.round(active.reduce((s,p)=>s+p.score,0)/active.length) : null;
+
+  let warna, label;
+  if (total===null){ warna='var(--text-2)'; label='Belum cukup data'; }
+  else if (total>=80){ warna='var(--green)'; label='Sehat 💪'; }
+  else if (total>=50){ warna='var(--warn)'; label='Perlu Perhatian ⚠️'; }
+  else { warna='var(--danger-2)'; label='Kritis 🚨'; }
+
+  numEl.textContent = total===null ? '-' : total;
+  numEl.style.color = warna;
+  labelEl.textContent = label;
+  labelEl.style.color = warna;
+
+  breakEl.innerHTML = parts.map(p=>{
+    const barPct = p.score===null ? 0 : p.score;
+    const barColor = p.score===null ? 'var(--border)' : (p.score>=80?'var(--green)': p.score>=50?'var(--warn)':'var(--danger-2)');
+    return `
+    <div>
+      <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px;">
+        <span>${p.label}</span>
+        <span style="color:var(--text-2);">${p.score===null?'—':p.score+'/100'} · ${p.sub}</span>
+      </div>
+      <div class="progress-bar" style="height:6px;"><div class="progress-bar-fill" style="width:${barPct}%; background:${barColor};"></div></div>
+    </div>`;
+  }).join('');
 }
 
 function hariJatuhTempoBerikutnya_(tglBulan){
@@ -1476,9 +1582,9 @@ function budgetStatus_(pct){
 const BUDGET_GRUPS = ['Esensial', 'Non-Esensial'];
 function renderBudget(){
   const body = document.getElementById('budgetBody');
-  if (!BUDGET.length){ body.innerHTML = '<div class="delta">Belum ada alokasi budget. Klik "Kelola" untuk menambah.</div>'; renderBudgetWarningBanner_(); return; }
+  if (!BUDGET.length){ body.innerHTML = '<div class="delta">Belum ada alokasi budget. Klik "Kelola" untuk menambah.</div>'; renderBudgetWarningBanner_(); renderHealthScore(); return; }
   const pemasukan = pemasukanBulanIni_();
-  if (!pemasukan){ body.innerHTML = '<div class="delta">Gaji Bulanan belum diisi. Klik "Kelola" untuk mengisi dulu.</div>'; renderBudgetWarningBanner_(); return; }
+  if (!pemasukan){ body.innerHTML = '<div class="delta">Gaji Bulanan belum diisi. Klik "Kelola" untuk mengisi dulu.</div>'; renderBudgetWarningBanner_(); renderHealthScore(); return; }
   const terpakaiByCat = keluarBulanIniByKategori_();
   body.innerHTML = BUDGET_GRUPS.map(g => {
     const items = BUDGET.filter(b => b.grup === g);
@@ -1511,6 +1617,7 @@ function renderBudget(){
     </div>`;
   }).join('');
   renderBudgetWarningBanner_();
+  renderHealthScore();
 }
 function renderBudgetWarningBanner_(){
   const banner = document.getElementById('budgetWarningBanner');
@@ -1955,7 +2062,7 @@ function rowRecentHtml(t){
   return `<tr>
     <td data-label="Tanggal">${fmtDateShort(t.tanggal)}</td>
     <td data-label="Keterangan">${escapeHtml(t.keterangan)}</td>
-    <td data-label="Kategori"><span class="tag">${escapeHtml(t.kategori)}</span></td>
+    <td data-label="Kategori"><span class="tag ${kategoriTagClass_(t.kategori)}">${escapeHtml(t.kategori)}</span></td>
     <td data-label="Jenis">${t.jenis==='Masuk'?'⬆️ Masuk':'⬇️ Keluar'}</td>
     <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}${isTransaksiNetralSaldo_(t) ? '<div style="font-size:10px; font-weight:600; color:var(--text-2);">saldo tetap</div>' : ''}</td>
   </tr>`;
@@ -2072,7 +2179,12 @@ function populateBulanOptions(){
 }
 function populateKategoriOptions(){
   const fKategori = document.getElementById('fKategori');
-  fKategori.innerHTML = '<option value="">Semua Kategori</option>' + KATEGORI.map(k=>`<option value="${k}">${k}</option>`).join('');
+  const income = KATEGORI.filter(k=>INCOME_KATEGORI.includes(k));
+  const expense = KATEGORI.filter(k=>!INCOME_KATEGORI.includes(k));
+  const opt = k => `<option value="${k}">${k}</option>`;
+  fKategori.innerHTML = '<option value="">Semua Kategori</option>'
+    + (income.length ? `<optgroup label="🟢 Pemasukan">${income.map(opt).join('')}</optgroup>` : '')
+    + (expense.length ? `<optgroup label="🔴 Pengeluaran">${expense.map(opt).join('')}</optgroup>` : '');
 }
 function setJenisFilter(val){
   jenisFilter = val;
@@ -2110,12 +2222,34 @@ function setTableLoading_(on){
   wrap.style.pointerEvents = on ? 'none' : '';
   wrap.style.transition = 'opacity .15s ease';
 }
+/** Tandai satu baris transaksi lagi diproses (edit/hapus) tanpa nge-freeze
+ * seluruh tabel -- baris lain tetap bisa diklik/discroll normal. */
+function setRowLoading_(id, on){
+  const row = document.getElementById('row-'+id);
+  if(!row) return;
+  const actions = row.querySelector('.row-actions');
+  if(on){
+    row.classList.add('row-loading');
+    if(actions && !actions.dataset.prevHtml){
+      actions.dataset.prevHtml = actions.innerHTML;
+      actions.innerHTML = '<span class="loader"></span>';
+    }
+  } else {
+    row.classList.remove('row-loading');
+    if(actions && actions.dataset.prevHtml){
+      actions.innerHTML = actions.dataset.prevHtml;
+      delete actions.dataset.prevHtml;
+    }
+  }
+}
 /** Reload ringan: cuma ambil ulang data transaksi (bukan seluruh app seperti
  * refreshAll) supaya filter, halaman aktif, dan pengaturan lain yang sedang
  * dibuka TIDAK ikut ke-reset. Dipakai setiap kali ada perubahan transaksi
  * (tambah/edit/hapus/tandai lunas/setor/tarik tabungan). */
-function reloadTransaksiData_(){
-  setTableLoading_(true);
+function reloadTransaksiData_(opts){
+  opts = opts || {};
+  const dim = !opts.skipDim;
+  if(dim) setTableLoading_(true);
   return new Promise(function(resolve, reject){
     google.script.run
       .withSuccessHandler(function(rows){
@@ -2126,11 +2260,11 @@ function reloadTransaksiData_(){
         renderRekap();
         renderRunway();
         renderBudget();
-        setTableLoading_(false);
+        if(dim) setTableLoading_(false);
         resolve();
       })
       .withFailureHandler(function(err){
-        setTableLoading_(false);
+        if(dim) setTableLoading_(false);
         reject(err);
       })
       .getAllTransaksi();
@@ -2150,10 +2284,10 @@ function renderTable(){
   } else {
     empty.style.display='none';
     tbody.innerHTML = pageItems.map(t=>`
-      <tr>
+      <tr id="row-${t.id}">
         <td data-label="Tanggal">${fmtDateShort(t.tanggal)}</td>
         <td data-label="Keterangan">${escapeHtml(t.keterangan)}</td>
-        <td data-label="Kategori"><span class="tag">${escapeHtml(t.kategori)}</span></td>
+        <td data-label="Kategori"><span class="tag ${kategoriTagClass_(t.kategori)}">${escapeHtml(t.kategori)}</span></td>
         <td data-label="Jenis">${t.jenis==='Masuk'?'⬆️ Masuk':'⬇️ Keluar'}</td>
         <td data-label="Jumlah" style="text-align:right;" class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}${isTransaksiNetralSaldo_(t) ? '<div style="font-size:10px; font-weight:600; color:var(--text-2);">saldo tetap</div>' : ''}</td>
         <td data-label="Saldo" style="text-align:right;">${rupiah(t.saldoRunning)}</td>
@@ -2572,6 +2706,7 @@ function submitTransaksi(){
   const payload = { tanggal, jumlah:Number(jumlah), keterangan, kategori, jenis:formJenis };
   const btn = document.getElementById('btnSaveTrans');
   btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Menyimpan...';
+  if(editingId) setRowLoading_(editingId, true);
 
   if(editingId){
     payload.id = editingId;
@@ -2589,15 +2724,18 @@ function submitTransaksi(){
 function afterSave(msg){
   const btn = document.getElementById('btnSaveTrans');
   btn.disabled = false; btn.innerHTML = 'Simpan Transaksi';
+  const wasEditingId = editingId;
   closeTransModal();
   showToast_(msg, false);
-  reloadTransaksiData_().catch(function(err){
+  reloadTransaksiData_({skipDim: !!wasEditingId}).catch(function(err){
+    if(wasEditingId) setRowLoading_(wasEditingId, false);
     showToast_('Tersimpan, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
   });
 }
 function onSaveFail(err){
   const btn = document.getElementById('btnSaveTrans');
   btn.disabled = false; btn.innerHTML = 'Simpan Transaksi';
+  if(editingId) setRowLoading_(editingId, false);
   document.getElementById('formErr').textContent = err.message || 'Terjadi kesalahan.';
 }
 
@@ -2628,7 +2766,8 @@ function openConfirm(id){
     title: 'Hapus Transaksi?',
     successMsg: 'Transaksi berhasil dihapus',
     onSuccess: function(){
-      reloadTransaksiData_().catch(function(err){
+      reloadTransaksiData_({skipDim:true}).catch(function(err){
+        setRowLoading_(id, false);
         showToast_('Terhapus, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
       });
     }
@@ -2647,6 +2786,7 @@ function confirmDelete(){
   const successMsg = deletingSuccessMsg;
   const cb = deletingCallback;
   btn.disabled = true; btn.innerHTML = '<span class="loader"></span> Menghapus...';
+  if(action === 'deleteTransaksi') setRowLoading_(id, true);
   google.script.run
     .withSuccessHandler(function(){
       btn.disabled = false; btn.innerHTML = 'Ya, Hapus';
@@ -2656,6 +2796,7 @@ function confirmDelete(){
     })
     .withFailureHandler(function(err){
       btn.disabled = false; btn.innerHTML = 'Ya, Hapus';
+      if(action === 'deleteTransaksi') setRowLoading_(id, false);
       showToast_('Gagal menghapus: ' + ((err&&err.message)||err), true);
     })
     [action](id);
