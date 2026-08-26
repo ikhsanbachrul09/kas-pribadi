@@ -493,6 +493,45 @@
   .density-seg button{padding:6px 9px; font-size:12px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--text-1); cursor:pointer;}
   .density-seg button.active{background:var(--cyan-2); color:#01130f; border-color:var(--cyan-2);}
 
+  /* ---------- HALAMAN LAPORAN ---------- */
+  .laporan-intro{
+    display:flex; align-items:center; gap:16px; padding:18px 20px;
+    background:linear-gradient(120deg, rgba(59,130,246,.14), rgba(16,185,129,.08));
+    border:1px solid rgba(59,130,246,.25); border-radius:var(--radius); margin-bottom:20px;
+  }
+  .laporan-intro .ic{font-size:30px; flex-shrink:0;}
+  .laporan-intro .t{font-size:14px; font-weight:700; margin-bottom:3px;}
+  .laporan-intro .d{font-size:12px; color:var(--text-1); line-height:1.5;}
+  .laporan-feat{display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:8px;}
+  .laporan-feat span{font-size:11px; color:var(--text-2);}
+  .laporan-list{display:flex; flex-direction:column; gap:8px;}
+  .laporan-row{
+    display:flex; align-items:center; gap:14px; padding:13px 14px;
+    background:#0e1c2b; border:1px solid var(--border-soft); border-radius:12px;
+    transition:border-color .15s ease;
+  }
+  .laporan-row:hover{border-color:rgba(59,130,246,.35);}
+  .laporan-row .cal-ic{
+    width:40px; height:40px; border-radius:10px; flex-shrink:0;
+    background:rgba(59,130,246,.14); color:var(--cyan-2);
+    display:flex; align-items:center; justify-content:center; font-size:17px;
+  }
+  .laporan-row .info{flex:1; min-width:0;}
+  .laporan-row .info .lbl{font-size:13.5px; font-weight:600;}
+  .laporan-row .info .sub{font-size:11.5px; color:var(--text-2); margin-top:2px;}
+  .lap-badge{
+    font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:20px;
+    white-space:nowrap; flex-shrink:0;
+  }
+  .lap-badge.selesai{background:rgba(42,245,193,.13); color:var(--green);}
+  .lap-badge.berjalan{background:rgba(255,207,92,.14); color:var(--warn);}
+  .laporan-row .btn{flex-shrink:0;}
+  @media (max-width:560px){
+    .laporan-row{flex-wrap:wrap;}
+    .laporan-row .btn{width:100%; justify-content:center; order:4;}
+    .lap-badge{order:3;}
+  }
+
   /* ---------- BADGE MILESTONE TABUNGAN ---------- */
   .env-badges{display:flex; gap:6px; margin-top:7px;}
   .env-badge{font-size:16px; filter:grayscale(1); opacity:.3; transition:filter .2s ease, opacity .2s ease, transform .2s ease;}
@@ -608,6 +647,9 @@
       </div>
       <div class="nav-item" data-page="rencana" onclick="goPage('rencana')">
         <span class="ic">🗂️</span><span>Rencana</span>
+      </div>
+      <div class="nav-item" data-page="laporan" onclick="goPage('laporan')">
+        <span class="ic">🧾</span><span>Laporan</span>
       </div>
     </nav>
 
@@ -933,6 +975,32 @@
         </div>
       </section>
 
+      <!-- ================= LAPORAN ================= -->
+      <section class="page" id="page-laporan">
+        <div class="laporan-intro">
+          <div class="ic">🧾</div>
+          <div>
+            <div class="t">Laporan Keuangan Bulanan (PDF)</div>
+            <div class="d">Pilih bulan, unduh laporan lengkap dalam satu file PDF — siap disimpan atau dibagikan.</div>
+            <div class="laporan-feat">
+              <span>📊 Grafik pengeluaran per kategori</span>
+              <span>📅 Grafik harian</span>
+              <span>🏆 Top pengeluaran</span>
+              <span>🎯 Budget vs realisasi</span>
+              <span>📌 Tagihan &amp; tabungan</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>📁 Pilih Bulan</h3>
+            <span class="hint" id="laporanHint">Memuat...</span>
+          </div>
+          <div id="laporanListWrap" class="laporan-list"></div>
+        </div>
+      </section>
+
     </div>
   </main>
 </div>
@@ -1214,7 +1282,9 @@ function apiPost_(action, payload){
       getBudgetList(){ wrap(apiGet_('getBudgetList')); },
       addBudget(payload){ wrap(apiPost_('addBudget', payload)); },
       updateBudget(payload){ wrap(apiPost_('updateBudget', payload)); },
-      deleteBudget(id){ wrap(apiPost_('deleteBudget', { id: id })); }
+      deleteBudget(id){ wrap(apiPost_('deleteBudget', { id: id })); },
+      getBulanLaporanList(){ wrap(apiGet_('getBulanLaporanList')); },
+      downloadLaporanBulanan(yyyyMM){ wrap(apiPost_('downloadLaporanBulanan', { yyyyMM: yyyyMM })); }
     };
   }
   window.google = window.google || {};
@@ -1929,6 +1999,95 @@ function hapusBudget(id){
   });
 }
 
+/* ==================== LAPORAN BULANAN (PDF) ==================== */
+let BULAN_LAPORAN = [];
+let laporanLoaded = false;
+
+function renderLaporan(){
+  const wrap = document.getElementById('laporanListWrap');
+  const hint = document.getElementById('laporanHint');
+  // Skeleton loading -- cuma ditampilkan sekali di kunjungan pertama, biar
+  // gak "berkedip" tiap kali user bolak-balik ke halaman ini.
+  if (!laporanLoaded){
+    wrap.innerHTML = [1,2,3].map(()=>`
+      <div class="laporan-row">
+        <div class="cal-ic skeleton" style="background:none;">📅</div>
+        <div class="info">
+          <div class="skeleton" style="height:13px; width:140px; border-radius:6px; margin-bottom:6px;"></div>
+          <div class="skeleton" style="height:10px; width:90px; border-radius:6px;"></div>
+        </div>
+      </div>`).join('');
+  }
+  google.script.run
+    .withSuccessHandler(function(list){
+      BULAN_LAPORAN = list || [];
+      laporanLoaded = true;
+      hint.textContent = BULAN_LAPORAN.length + ' bulan tersedia';
+      renderLaporanList_();
+    })
+    .withFailureHandler(function(err){
+      hint.textContent = 'Gagal memuat';
+      wrap.innerHTML = `<div class="empty-state"><div class="em-ic">⚠️</div>Gagal memuat daftar bulan.<br>${escapeHtml((err&&err.message)||String(err))}</div>`;
+    })
+    .getBulanLaporanList();
+}
+
+function renderLaporanList_(){
+  const wrap = document.getElementById('laporanListWrap');
+  if (!BULAN_LAPORAN.length){
+    wrap.innerHTML = `<div class="empty-state"><div class="em-ic">🧾</div>Belum ada transaksi tercatat di bulan manapun.<br>Laporan akan muncul di sini begitu ada catatan transaksi.</div>`;
+    return;
+  }
+  wrap.innerHTML = BULAN_LAPORAN.map(b => `
+    <div class="laporan-row" id="lapRow-${b.yyyyMM}">
+      <div class="cal-ic">📅</div>
+      <div class="info">
+        <div class="lbl">${escapeHtml(b.label)}</div>
+        <div class="sub">Laporan lengkap + grafik dalam PDF</div>
+      </div>
+      <span class="lap-badge ${b.selesai ? 'selesai' : 'berjalan'}">${b.selesai ? 'Selesai' : 'Bulan berjalan'}</span>
+      <button class="btn btn-primary btn-sm" onclick="unduhLaporan(${b.yyyyMM}, '${escapeHtml(b.label).replace(/'/g,"\\'")}', this)">⬇️ Unduh PDF</button>
+    </div>`).join('');
+}
+
+function base64ToBlob_(base64, mime){
+  const byteChars = atob(base64);
+  const byteNumbers = new Array(byteChars.length);
+  for (let i=0; i<byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+  return new Blob([new Uint8Array(byteNumbers)], { type: mime });
+}
+
+function unduhLaporan(yyyyMM, label, btnEl){
+  const original = btnEl.innerHTML;
+  btnEl.disabled = true;
+  btnEl.innerHTML = '<span class="loader"></span> Menyiapkan...';
+  google.script.run
+    .withSuccessHandler(function(res){
+      btnEl.disabled = false;
+      btnEl.innerHTML = original;
+      if (!res || !res.base64){
+        showToast_('Laporan kosong / gagal dibuat', true);
+        return;
+      }
+      const blob = base64ToBlob_(res.base64, 'application/pdf');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = res.filename || ('Laporan Kas Pribadi - ' + label + '.pdf');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      showToast_('Laporan ' + label + ' berhasil diunduh', false);
+    })
+    .withFailureHandler(function(err){
+      btnEl.disabled = false;
+      btnEl.innerHTML = original;
+      showToast_('Gagal membuat laporan: ' + ((err&&err.message)||err), true);
+    })
+    .downloadLaporanBulanan(yyyyMM);
+}
+
 function openPengaturanModal(){
   const sel = document.getElementById('fmTanggalGajian');
   if (!sel.options.length){
@@ -2162,7 +2321,8 @@ function goPage(page){
     transaksi:['Transaksi','Kelola semua catatan pemasukan & pengeluaran'],
     rekap:['Rekap','Ringkasan bulan yang dipilih'],
     tren:['Tren & Analisis','Pola pengeluaran jangka panjang'],
-    rencana:['Rencana','Tagihan rutin, target tabungan & alokasi budget']
+    rencana:['Rencana','Tagihan rutin, target tabungan & alokasi budget'],
+    laporan:['Laporan','Unduh laporan keuangan bulanan dalam format PDF']
   };
   document.getElementById('pageTitle').textContent = titles[page][0];
   document.getElementById('pageSub').textContent = titles[page][1];
@@ -2170,6 +2330,7 @@ function goPage(page){
   if(page==='rekap') renderRekap();
   if(page==='tren') renderTren();
   if(page==='rencana'){ renderTagihan(); renderTabungan(); renderBudget(); }
+  if(page==='laporan') renderLaporan();
 }
 function openSidebar(){ document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('show'); }
 function closeSidebar(){ document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('show'); }
