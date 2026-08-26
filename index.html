@@ -1114,7 +1114,8 @@ const APPS_SCRIPT_API_URL = 'https://script.google.com/macros/s/AKfycbzBxkzz7vN0
 function apiGet_(action, params){
   return apiPost_(action, params || {});
 }
-function apiPost_(action, payload){
+function apiPost_(action, payload, retriesLeft){
+  if (retriesLeft === undefined) retriesLeft = 1; // 1x retry otomatis kalau fetch gagal/timeout
   // Sengaja pakai Content-Type: text/plain (bukan application/json) supaya
   // browser tidak mengirim CORS preflight (OPTIONS) -- Apps Script Web App
   // tidak menangani preflight itu.
@@ -1122,7 +1123,10 @@ function apiPost_(action, payload){
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action: action, payload: payload })
-  }).then(apiHandleResponse_);
+  }).then(apiHandleResponse_).catch(function(err){
+    if (retriesLeft > 0) return apiPost_(action, payload, retriesLeft - 1);
+    throw err;
+  });
 }
 function apiHandleResponse_(res){
   return res.json().then(function(data){
@@ -1143,6 +1147,7 @@ function apiHandleResponse_(res){
     return {
       withSuccessHandler(fn){ return makeRunner(fn, failureHandler); },
       withFailureHandler(fn){ return makeRunner(successHandler, fn); },
+      getBootData(){ wrap(apiGet_('getBootData')); },
       getAllTransaksi(){ wrap(apiGet_('getAllTransaksi')); },
       getKategoriList(){ wrap(apiGet_('getKategoriList')); },
       addTransaksi(payload){ wrap(apiPost_('addTransaksi', payload)); },
@@ -1959,8 +1964,8 @@ window.addEventListener('DOMContentLoaded', () => {
   // Jika belum ada respons apapun dari server dalam 20 detik,
   // kemungkinan besar skrip Apps Script belum diberi izin akses (authorize).
   bootTimeoutId = setTimeout(function(){
-    if(!bootDone) showBootError('Server tidak merespons dalam 20 detik. Skrip kemungkinan belum diberi izin akses (belum di-Authorize), atau koneksi terputus.');
-  }, 20000);
+    if(!bootDone) showBootError('Server tidak merespons dalam 35 detik. Skrip kemungkinan belum diberi izin akses (belum di-Authorize), atau koneksi terputus.');
+  }, 35000);
 
   loadChartJs(CHART_CDN_SOURCES).then(function(ok){
     chartJsReady = ok;
@@ -2006,39 +2011,25 @@ function refreshAll(showToast, isInitial){
     skeletonRows('tblTransaksi', 7, 6);
   }
 
-  const dataPromise = new Promise(function(resolve, reject){
+  // Dulu 6 request paralel (Promise.all) ke Web App yang sama -- di cold
+  // start GAS itu 6x beban buka-spreadsheet & rawan timeout, dan kalau satu
+  // gagal semua ikut gagal. Sekarang cuma 1 request, backend yang gabungin
+  // (lihat getBootData_ di code.gs). apiPost_ juga sudah retry 1x sendiri.
+  const bootPromise = new Promise(function(resolve, reject){
     google.script.run
       .withSuccessHandler(resolve)
       .withFailureHandler(reject)
-      .getAllTransaksi();
-  });
-  const katPromise = new Promise(function(resolve, reject){
-    google.script.run
-      .withSuccessHandler(resolve)
-      .withFailureHandler(reject)
-      .getKategoriList();
-  });
-  const pengaturanPromise = new Promise(function(resolve, reject){
-    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getPengaturan();
-  });
-  const tagihanPromise = new Promise(function(resolve, reject){
-    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getTagihanList();
-  });
-  const tabunganPromise = new Promise(function(resolve, reject){
-    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getTabunganList();
-  });
-  const budgetPromise = new Promise(function(resolve, reject){
-    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).getBudgetList();
+      .getBootData();
   });
 
-  Promise.all([dataPromise, katPromise, pengaturanPromise, tagihanPromise, tabunganPromise, budgetPromise])
-    .then(function(results){
-      DATA = computeSaldo(results[0]);
-      KATEGORI = results[1];
-      PENGATURAN = results[2];
-      TAGIHAN = results[3];
-      TABUNGAN = results[4];
-      BUDGET = results[5];
+  bootPromise
+    .then(function(boot){
+      DATA = computeSaldo(boot.transaksi);
+      KATEGORI = boot.kategori;
+      PENGATURAN = boot.pengaturan;
+      TAGIHAN = boot.tagihan;
+      TABUNGAN = boot.tabungan;
+      BUDGET = boot.budget;
       populateKategoriOptions();
       populateBulanOptions();
       applyFilters();
