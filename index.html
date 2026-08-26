@@ -498,6 +498,42 @@
   .env-badge{font-size:16px; filter:grayscale(1); opacity:.3; transition:filter .2s ease, opacity .2s ease, transform .2s ease;}
   .env-badge.reached{filter:none; opacity:1; transform:scale(1.05);}
 
+  /* ---------- INSIGHT MINGGUAN ---------- */
+  .insight-stats{display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap;}
+  .insight-stat{flex:1 1 130px; background:#0c1c2c; border:1px solid var(--border-soft); border-radius:12px; padding:11px 14px;}
+  .insight-stat .lbl{font-size:11px; color:var(--text-2); margin-bottom:5px;}
+  .insight-stat .val{font-size:16px; font-weight:700; color:var(--text-0);}
+  .insight-item{display:flex; gap:11px; align-items:flex-start; padding:11px 13px; border-radius:12px; margin-bottom:8px; font-size:13px; line-height:1.55;}
+  .insight-item:last-child{margin-bottom:0;}
+  .insight-ic{flex:0 0 auto; width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; background:rgba(255,255,255,.08);}
+  .insight-up{background:rgba(255,120,80,.10); color:#ffb199;}
+  .insight-down{background:rgba(80,220,150,.10); color:#8fe6b8;}
+  .insight-neutral{background:rgba(90,180,255,.10); color:#a9d6ff;}
+
+  /* ---------- KALENDER ANALISIS (heatmap ala GitHub) ---------- */
+  .panel-head .density-seg{flex:0 0 auto;}
+  .cal-scroll-wrap{overflow-x:auto; padding-bottom:6px;}
+  .cal-grid{
+    display:grid;
+    grid-template-columns:22px;
+    grid-auto-columns:11px;
+    grid-template-rows:14px repeat(7, 11px);
+    grid-auto-flow:column;
+    gap:3px;
+    width:max-content;
+  }
+  .cal-monthlabel{font-size:10px; color:var(--text-2); align-self:end;}
+  .cal-daylabel{font-size:9.5px; color:var(--text-2); display:flex; align-items:center;}
+  .cal-cell{width:11px; height:11px; border-radius:3px; cursor:pointer;}
+  .cal-cell.cal-empty{background:transparent; cursor:default;}
+  .cal-l0{background:#0e1e2b;}
+  .cal-keluar-l1{background:#4a1f1f;} .cal-keluar-l2{background:#7a2e26;} .cal-keluar-l3{background:#b83f2e;} .cal-keluar-l4{background:#ff5a46;}
+  .cal-masuk-l1{background:#123a2a;} .cal-masuk-l2{background:#1c5c3f;} .cal-masuk-l3{background:#2a8f5c;} .cal-masuk-l4{background:#3ddc84;}
+  .cal-pos-l1{background:#123a2a;} .cal-pos-l2{background:#1c5c3f;} .cal-pos-l3{background:#2a8f5c;} .cal-pos-l4{background:#3ddc84;}
+  .cal-neg-l1{background:#4a1f1f;} .cal-neg-l2{background:#7a2e26;} .cal-neg-l3{background:#b83f2e;} .cal-neg-l4{background:#ff5a46;}
+  .cal-legend{display:flex; align-items:center; gap:4px; font-size:10.5px; color:var(--text-2); margin-top:9px;}
+  .cal-legend .cal-cell{cursor:default;}
+
   /* ---------- BOOT OVERLAY ---------- */
   #bootOverlay{
     position:fixed; inset:0; z-index:500; background:var(--bg-0);
@@ -848,6 +884,30 @@
             <div class="panel-head"><h3>Top 5 Pengeluaran Terbesar</h3><span class="hint" id="topHint">Bulan dipilih</span></div>
             <div class="top-list" id="topList"></div>
           </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>📅 Kalender Analisis</h3>
+            <div class="density-seg" id="calMetricSeg">
+              <button data-val="keluar" onclick="setCalMetric('keluar')">Pengeluaran</button>
+              <button data-val="masuk" onclick="setCalMetric('masuk')">Pemasukan</button>
+              <button data-val="net" onclick="setCalMetric('net')">Net</button>
+            </div>
+          </div>
+          <div class="cal-scroll-wrap" id="calScrollWrap">
+            <div class="cal-grid" id="calGrid"></div>
+          </div>
+          <div class="cal-legend">
+            <span>Sedikit</span>
+            <div class="cal-cell cal-l0"></div>
+            <div class="cal-cell" id="calLegend1"></div>
+            <div class="cal-cell" id="calLegend2"></div>
+            <div class="cal-cell" id="calLegend3"></div>
+            <div class="cal-cell" id="calLegend4"></div>
+            <span>Banyak</span>
+          </div>
+          <div id="calDayDetail" style="display:none; margin-top:14px; padding-top:12px; border-top:1px solid var(--border-soft);"></div>
         </div>
 
         <div class="panel">
@@ -2403,14 +2463,36 @@ function renderInsightMingguan(){
   const byCatIni = sumByKategori_(mingguIni);
   const byCatLalu = sumByKategori_(mingguLalu);
 
-  const insights = [];
-  if(totalLalu>0){
-    const pct = Math.round(((totalIni-totalLalu)/totalLalu)*100);
-    if(Math.abs(pct)>=10){
-      insights.push(`Pengeluaran 7 hari terakhir ${pct>0?'naik':'turun'} ${Math.abs(pct)}% dibanding minggu sebelumnya (${rupiah(totalIni)} vs ${rupiah(totalLalu)}).`);
-    }
-  } else if(totalIni>0){
-    insights.push(`Ada pengeluaran ${rupiah(totalIni)} dalam 7 hari terakhir, minggu sebelumnya nihil.`);
+  let pct = null;
+  if(totalLalu>0) pct = Math.round(((totalIni-totalLalu)/totalLalu)*100);
+
+  const statsHtml = `
+    <div class="insight-stats">
+      <div class="insight-stat">
+        <div class="lbl">7 Hari Terakhir</div>
+        <div class="val">${rupiah(totalIni)}</div>
+      </div>
+      <div class="insight-stat">
+        <div class="lbl">7 Hari Sebelumnya</div>
+        <div class="val">${rupiah(totalLalu)}</div>
+      </div>
+      <div class="insight-stat">
+        <div class="lbl">Perubahan</div>
+        <div class="val" style="color:${pct===null?'var(--text-2)':(pct>0?'#ff8a65':'#4ade80')};">
+          ${pct===null?'—':(pct>0?'▲ +':pct<0?'▼ ':'') + pct + '%'}
+        </div>
+      </div>
+    </div>`;
+
+  const items = [];
+  if(pct!==null && Math.abs(pct)>=10){
+    items.push({
+      icon: pct>0 ? '📈' : '📉',
+      tone: pct>0 ? 'up' : 'down',
+      text: `Pengeluaran 7 hari terakhir ${pct>0?'naik':'turun'} <b>${Math.abs(pct)}%</b> dibanding minggu sebelumnya.`
+    });
+  } else if(totalLalu===0 && totalIni>0){
+    items.push({ icon:'📈', tone:'neutral', text:`Ada pengeluaran <b>${rupiah(totalIni)}</b> dalam 7 hari terakhir, minggu sebelumnya nihil.` });
   }
 
   let topCat=null, topDelta=0;
@@ -2419,19 +2501,32 @@ function renderInsightMingguan(){
     if(Math.abs(delta) > Math.abs(topDelta)){ topDelta=delta; topCat=k; }
   });
   if(topCat && Math.abs(topDelta)>=20000){
-    insights.push(`Kategori "${topCat}" ${topDelta>0?'naik':'turun'} ${rupiah(Math.abs(topDelta))} dibanding minggu lalu.`);
+    items.push({
+      icon: topDelta>0 ? '⬆️' : '⬇️',
+      tone: topDelta>0 ? 'up' : 'down',
+      text: `Kategori <b>${escapeHtml(topCat)}</b> ${topDelta>0?'naik':'turun'} <b>${rupiah(Math.abs(topDelta))}</b> dibanding minggu lalu.`
+    });
   }
 
   const topThisWeek = Object.keys(byCatIni).sort((a,b)=>byCatIni[b]-byCatIni[a])[0];
   if(topThisWeek){
-    insights.push(`Kategori paling banyak keluar minggu ini: "${topThisWeek}" (${rupiah(byCatIni[topThisWeek])}).`);
+    items.push({
+      icon: '🏷️',
+      tone: 'neutral',
+      text: `Kategori paling banyak keluar minggu ini: <b>${escapeHtml(topThisWeek)}</b> (${rupiah(byCatIni[topThisWeek])}).`
+    });
   }
 
-  if(!insights.length) insights.push('Belum ada perubahan signifikan minggu ini. Kondisi stabil 👍');
+  if(!items.length) items.push({ icon:'👍', tone:'down', text:'Belum ada perubahan signifikan minggu ini. Kondisi stabil.' });
 
-  el.innerHTML = insights.slice(0,3).map(t=>
-    `<div style="padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:13px; line-height:1.5;">${escapeHtml(t)}</div>`
+  const itemsHtml = items.slice(0,3).map(it=>
+    `<div class="insight-item insight-${it.tone}">
+      <span class="insight-ic">${it.icon}</span>
+      <span>${it.text}</span>
+    </div>`
   ).join('');
+
+  el.innerHTML = statsHtml + itemsHtml;
 }
 
 /* ---------- FITUR: PROYEKSI AKHIR BULAN PER KATEGORI ----------
@@ -2459,6 +2554,147 @@ function renderProyeksiAkhirBulan(){
       </div>
     </div>`;
   }).join('');
+}
+
+/* ---------- FITUR: KALENDER ANALISIS (heatmap ala GitHub) ---------- */
+let calMetric = 'keluar';
+
+function fmtYMD_(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function buildCalendarWeeks_(totalWeeks){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dow = (today.getDay()+6)%7; // 0=Senin ... 6=Minggu
+  const thisMonday = new Date(today); thisMonday.setDate(today.getDate()-dow);
+  const startMonday = new Date(thisMonday); startMonday.setDate(thisMonday.getDate()-7*(totalWeeks-1));
+  const weeks = [];
+  for(let w=0; w<totalWeeks; w++){
+    const days = [];
+    for(let d=0; d<7; d++){
+      const dt = new Date(startMonday); dt.setDate(startMonday.getDate()+w*7+d);
+      days.push(dt);
+    }
+    weeks.push(days);
+  }
+  return weeks;
+}
+function buildDailyTotals_(){
+  const map = {};
+  DATA.forEach(t=>{
+    if(!map[t.tanggal]) map[t.tanggal] = { masuk:0, keluar:0, count:0 };
+    if(t.jenis==='Masuk') map[t.tanggal].masuk += t.jumlah;
+    else if(isPengeluaranRiil_(t)) map[t.tanggal].keluar += t.jumlah;
+    map[t.tanggal].count += 1;
+  });
+  return map;
+}
+function calColorLevels_(values){
+  const nonZero = values.filter(v=>v>0).sort((a,b)=>a-b);
+  if(!nonZero.length) return [0,0,0];
+  const q = p => nonZero[Math.min(nonZero.length-1, Math.floor(p*nonZero.length))];
+  return [q(0.25), q(0.5), q(0.75)];
+}
+function calLevelForValue_(v, th){
+  if(v<=0) return 0;
+  if(v<=th[0]) return 1;
+  if(v<=th[1]) return 2;
+  if(v<=th[2]) return 3;
+  return 4;
+}
+function setCalMetric(m){
+  calMetric = m;
+  document.getElementById('calDayDetail').style.display = 'none';
+  renderCalendarHeatmap_();
+}
+function renderCalendarHeatmap_(){
+  const grid = document.getElementById('calGrid');
+  if(!grid) return;
+  document.querySelectorAll('#calMetricSeg button').forEach(b=> b.classList.toggle('active', b.dataset.val===calMetric));
+
+  const TOTAL_WEEKS = 53;
+  const weeks = buildCalendarWeeks_(TOTAL_WEEKS);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const daily = buildDailyTotals_();
+
+  const dayMeta = [];
+  weeks.forEach(week=>{
+    week.forEach(dt=>{
+      const dateStr = fmtYMD_(dt);
+      const isFuture = dt > today;
+      const rec = daily[dateStr];
+      let value = 0, count = 0;
+      if(rec){
+        count = rec.count;
+        value = calMetric==='keluar' ? rec.keluar : calMetric==='masuk' ? rec.masuk : (rec.masuk-rec.keluar);
+      }
+      dayMeta.push({ dateStr, value, count, isFuture });
+    });
+  });
+
+  const magnitudes = dayMeta.filter(d=>!d.isFuture).map(d=> calMetric==='net' ? Math.abs(d.value) : d.value);
+  const th = calColorLevels_(magnitudes);
+
+  let html = '';
+  let lastMonth = null;
+  weeks.forEach((week,w)=>{
+    const monday = week[0];
+    if(monday.getMonth()!==lastMonth){
+      html += `<div class="cal-monthlabel" style="grid-column:${w+2}; grid-row:1;">${MONTH_NAMES[monday.getMonth()].slice(0,3)}</div>`;
+      lastMonth = monday.getMonth();
+    }
+  });
+  ['Sen','Sel','Rab','Kam','Jum','Sab','Min'].forEach((dn,i)=>{
+    if(i===0||i===2||i===4){
+      html += `<div class="cal-daylabel" style="grid-column:1; grid-row:${i+2};">${dn}</div>`;
+    }
+  });
+  dayMeta.forEach((d,idx)=>{
+    const w = Math.floor(idx/7), r = idx%7;
+    if(d.isFuture){
+      html += `<div class="cal-cell cal-empty" style="grid-column:${w+2}; grid-row:${r+2};"></div>`;
+      return;
+    }
+    const level = calLevelForValue_(calMetric==='net' ? Math.abs(d.value) : d.value, th);
+    const tone = calMetric==='net' ? (d.value<0 ? 'neg' : 'pos') : calMetric;
+    const cls = level===0 ? 'cal-l0' : `cal-${tone}-l${level}`;
+    const title = `${fmtDateShort(d.dateStr)}: ${rupiah(d.value)}${d.count?` (${d.count} transaksi)`:''}`;
+    html += `<div class="cal-cell ${cls}" title="${escapeHtml(title)}" onclick="openCalDayDetail_('${d.dateStr}')" style="grid-column:${w+2}; grid-row:${r+2};"></div>`;
+  });
+
+  grid.innerHTML = html;
+
+  ['1','2','3','4'].forEach(lvl=>{
+    const el = document.getElementById('calLegend'+lvl);
+    if(el) el.className = 'cal-cell ' + (calMetric==='net' ? 'cal-pos-l'+lvl : `cal-${calMetric}-l${lvl}`);
+  });
+
+  const wrap = document.getElementById('calScrollWrap');
+  if(wrap) wrap.scrollLeft = wrap.scrollWidth;
+}
+function openCalDayDetail_(dateStr){
+  const box = document.getElementById('calDayDetail');
+  if(!box) return;
+  const txs = DATA.filter(t=>t.tanggal===dateStr);
+  if(!txs.length){
+    box.innerHTML = `<div class="delta">Tidak ada transaksi pada ${fmtDateShort(dateStr)}.</div>`;
+    box.style.display = 'block';
+    return;
+  }
+  box.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <b style="font-size:13px;">${fmtDateShort(dateStr)}</b>
+      <span class="hint" style="cursor:pointer;" onclick="document.getElementById('calDayDetail').style.display='none';">Tutup ✕</span>
+    </div>
+    ${txs.map(t=>`
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid #0e1e2b; font-size:12.5px;">
+        <div style="display:flex; flex-direction:column; gap:3px; min-width:0;">
+          <span>${escapeHtml(t.keterangan)}</span>
+          <span class="tag ${kategoriTagClass_(t.kategori)}" style="width:fit-content;">${escapeHtml(t.kategori)}</span>
+        </div>
+        <span class="amt ${t.jenis==='Masuk'?'masuk':'keluar'}" style="white-space:nowrap;">${t.jenis==='Masuk'?'+':'-'}${rupiah(t.jumlah)}</span>
+      </div>`).join('')}
+  `;
+  box.style.display = 'block';
 }
 
 function renderTable(){
@@ -2541,6 +2777,7 @@ function renderTren(){
   renderTopPengeluaran(txSet);
   renderCatTrend();
   renderProyeksiAkhirBulan();
+  renderCalendarHeatmap_();
 }
 
 /* ==================== RINCIAN KATEGORI (bulan dipilih vs bulan sebelumnya) ==================== */
