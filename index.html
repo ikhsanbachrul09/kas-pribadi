@@ -1102,37 +1102,67 @@
 
 <script>
 /* ==================== KONEKSI KE BACKEND (Google Apps Script) ====================
- * Frontend ini di-hosting sendiri (GitHub Pages), jadi tidak bisa lagi pakai
+ * Frontend ini di-hosting sendiri (GitHub Pages), jadi tidak bisa pakai
  * google.script.run (itu hanya jalan kalau HTML disajikan LANGSUNG dari Apps
- * Script). Sebagai gantinya kita panggil backend lewat fetch() ke URL Web App.
+ * Script). Kita panggil backend lewat JSONP -- BUKAN fetch() -- karena fetch()
+ * cross-origin ke URL /exec Apps Script rawan kena "blocked by CORS policy"
+ * secara acak: /exec selalu redirect internal ke domain
+ * script.googleusercontent.com, dan redirect itu TIDAK SELALU meneruskan
+ * header Access-Control-Allow-Origin -- itu sebabnya sebelumnya kadang bisa
+ * kadang gagal walau statusnya 200 OK. Tag <script src="..."> (JSONP) sama
+ * sekali tidak tunduk pada aturan CORS browser, jadi kebal dari masalah itu.
  *
  * GANTI URL DI BAWAH INI dengan URL deployment Apps Script kamu sendiri
  * (Deploy > Manage deployments > salin URL yang berakhiran /exec).
  */
 const APPS_SCRIPT_API_URL = 'https://script.google.com/macros/s/AKfycbzBxkzz7vN0FfotCmp056V5HK9P-guIllsxi-fdQptC9FVtTn6ixCHL7eAZ1sHBpVFt/exec';
 
-function apiGet_(action, params){
-  return apiPost_(action, params || {});
-}
-function apiPost_(action, payload, retriesLeft){
-  if (retriesLeft === undefined) retriesLeft = 1; // 1x retry otomatis kalau fetch gagal/timeout
-  // Sengaja pakai Content-Type: text/plain (bukan application/json) supaya
-  // browser tidak mengirim CORS preflight (OPTIONS) -- Apps Script Web App
-  // tidak menangani preflight itu.
-  return fetch(APPS_SCRIPT_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: action, payload: payload })
-  }).then(apiHandleResponse_).catch(function(err){
-    if (retriesLeft > 0) return apiPost_(action, payload, retriesLeft - 1);
+let __kasJsonpSeq = 0;
+function apiCall_(action, payload, retriesLeft){
+  if (retriesLeft === undefined) retriesLeft = 1; // 1x retry otomatis kalau timeout/gagal load
+  return new Promise(function(resolve, reject){
+    var cbName = '__kasCb' + (++__kasJsonpSeq) + '_' + Date.now();
+    var script = document.createElement('script');
+    var timeoutId;
+
+    function cleanup(){
+      clearTimeout(timeoutId);
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+    }
+
+    window[cbName] = function(data){
+      cleanup();
+      if (data && data.error) reject(new Error(data.error));
+      else resolve(data && data.result);
+    };
+
+    script.onerror = function(){
+      cleanup();
+      reject(new Error('Gagal terhubung ke server (script load error)'));
+    };
+
+    timeoutId = setTimeout(function(){
+      cleanup();
+      reject(new Error('Server tidak merespons (timeout)'));
+    }, 25000);
+
+    var url = APPS_SCRIPT_API_URL
+      + '?action=' + encodeURIComponent(action)
+      + '&payload=' + encodeURIComponent(JSON.stringify(payload || {}))
+      + '&callback=' + cbName;
+    script.src = url;
+    document.head.appendChild(script);
+  }).catch(function(err){
+    if (retriesLeft > 0) return apiCall_(action, payload, retriesLeft - 1);
     throw err;
   });
 }
-function apiHandleResponse_(res){
-  return res.json().then(function(data){
-    if (data && data.error) throw new Error(data.error);
-    return data.result;
-  });
+function apiGet_(action, params){
+  return apiCall_(action, params || {});
+}
+function apiPost_(action, payload){
+  return apiCall_(action, payload || {});
 }
 
 /* Shim kompatibilitas: supaya semua kode di bawah yang memanggil
