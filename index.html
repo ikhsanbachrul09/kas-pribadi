@@ -510,27 +510,30 @@
   .insight-down{background:rgba(80,220,150,.10); color:#8fe6b8;}
   .insight-neutral{background:rgba(90,180,255,.10); color:#a9d6ff;}
 
-  /* ---------- KALENDER ANALISIS (heatmap ala GitHub) ---------- */
-  .panel-head .density-seg{flex:0 0 auto;}
-  .cal-scroll-wrap{overflow-x:auto; padding-bottom:6px;}
-  .cal-grid{
-    display:grid;
-    grid-template-columns:22px;
-    grid-auto-columns:11px;
-    grid-template-rows:14px repeat(7, 11px);
-    grid-auto-flow:column;
-    gap:3px;
-    width:max-content;
-  }
-  .cal-monthlabel{font-size:10px; color:var(--text-2); align-self:end;}
-  .cal-daylabel{font-size:9.5px; color:var(--text-2); display:flex; align-items:center;}
-  .cal-cell{width:11px; height:11px; border-radius:3px; cursor:pointer;}
-  .cal-cell.cal-empty{background:transparent; cursor:default;}
+  /* ---------- KALENDER ANALISIS (grid per-bulan, mobile-first) ---------- */
+  .cal-controls{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; align-items:center;}
+  .cal-controls select{min-height:34px; padding:6px 10px; font-size:12.5px;}
+  .cal-months-wrap{display:flex; flex-direction:column; gap:24px;}
+  .calm-block{width:100%;}
+  .calm-month-title{font-size:13px; font-weight:700; margin-bottom:8px; color:var(--text-1);}
+  .calm-dow-row{display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:4px;}
+  .calm-dow-row div{font-size:10px; color:var(--text-2); text-align:center;}
+  .calm-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:4px;}
+  .calm-cell{position:relative; aspect-ratio:1/1; border-radius:8px; display:flex; align-items:flex-start; padding:4px; cursor:pointer; background:#0e1e2b;}
+  .calm-cell.calm-pad{background:transparent; cursor:default;}
+  .calm-cell.calm-future{background:#0a1620; cursor:default; opacity:.5;}
+  .calm-daynum{font-size:10px; font-weight:700; color:rgba(255,255,255,.85); text-shadow:0 1px 2px rgba(0,0,0,.45);}
+  .cal-months-wrap.calm-compact{gap:16px;}
+  .calm-compact .calm-month-title{font-size:11.5px; margin-bottom:6px;}
+  .calm-compact .calm-grid, .calm-compact .calm-dow-row{gap:3px;}
+  .calm-compact .calm-cell{border-radius:5px; padding:2px;}
+  .calm-compact .calm-daynum{font-size:8px;}
   .cal-l0{background:#0e1e2b;}
   .cal-keluar-l1{background:#4a1f1f;} .cal-keluar-l2{background:#7a2e26;} .cal-keluar-l3{background:#b83f2e;} .cal-keluar-l4{background:#ff5a46;}
   .cal-masuk-l1{background:#123a2a;} .cal-masuk-l2{background:#1c5c3f;} .cal-masuk-l3{background:#2a8f5c;} .cal-masuk-l4{background:#3ddc84;}
   .cal-pos-l1{background:#123a2a;} .cal-pos-l2{background:#1c5c3f;} .cal-pos-l3{background:#2a8f5c;} .cal-pos-l4{background:#3ddc84;}
   .cal-neg-l1{background:#4a1f1f;} .cal-neg-l2{background:#7a2e26;} .cal-neg-l3{background:#b83f2e;} .cal-neg-l4{background:#ff5a46;}
+  .cal-cell{width:11px; height:11px; border-radius:3px;}
   .cal-legend{display:flex; align-items:center; gap:4px; font-size:10.5px; color:var(--text-2); margin-top:9px;}
   .cal-legend .cal-cell{cursor:default;}
 
@@ -889,15 +892,23 @@
         <div class="panel">
           <div class="panel-head">
             <h3>📅 Kalender Analisis</h3>
+          </div>
+          <div class="cal-controls">
+            <div class="density-seg" id="calRangeSeg">
+              <button data-val="bulan" onclick="setCalRange('bulan')">1 Bulan</button>
+              <button data-val="2bulan" onclick="setCalRange('2bulan')">2 Bulan</button>
+              <button data-val="12bulan" onclick="setCalRange('12bulan')">12 Bulan</button>
+            </div>
+            <div id="calBulanPickerWrap">
+              <select id="calBulanPicker" onchange="onCalBulanChange()"></select>
+            </div>
             <div class="density-seg" id="calMetricSeg">
               <button data-val="keluar" onclick="setCalMetric('keluar')">Pengeluaran</button>
               <button data-val="masuk" onclick="setCalMetric('masuk')">Pemasukan</button>
               <button data-val="net" onclick="setCalMetric('net')">Net</button>
             </div>
           </div>
-          <div class="cal-scroll-wrap" id="calScrollWrap">
-            <div class="cal-grid" id="calGrid"></div>
-          </div>
+          <div id="calGrid"></div>
           <div class="cal-legend">
             <span>Sedikit</span>
             <div class="cal-cell cal-l0"></div>
@@ -2556,27 +2567,13 @@ function renderProyeksiAkhirBulan(){
   }).join('');
 }
 
-/* ---------- FITUR: KALENDER ANALISIS (heatmap ala GitHub) ---------- */
+/* ---------- FITUR: KALENDER ANALISIS (grid per-bulan, mobile-first) ---------- */
 let calMetric = 'keluar';
+let calRangeMode = 'bulan'; // 'bulan' | '2bulan' | '12bulan'
+let calSelectedMonth = null; // 'YYYY-MM', dipakai saat calRangeMode==='bulan'
 
 function fmtYMD_(d){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-}
-function buildCalendarWeeks_(totalWeeks){
-  const today = new Date(); today.setHours(0,0,0,0);
-  const dow = (today.getDay()+6)%7; // 0=Senin ... 6=Minggu
-  const thisMonday = new Date(today); thisMonday.setDate(today.getDate()-dow);
-  const startMonday = new Date(thisMonday); startMonday.setDate(thisMonday.getDate()-7*(totalWeeks-1));
-  const weeks = [];
-  for(let w=0; w<totalWeeks; w++){
-    const days = [];
-    for(let d=0; d<7; d++){
-      const dt = new Date(startMonday); dt.setDate(startMonday.getDate()+w*7+d);
-      days.push(dt);
-    }
-    weeks.push(days);
-  }
-  return weeks;
 }
 function buildDailyTotals_(){
   const map = {};
@@ -2601,75 +2598,105 @@ function calLevelForValue_(v, th){
   if(v<=th[2]) return 3;
   return 4;
 }
+function calMonthsToShow_(){
+  if(calRangeMode==='bulan') return [calSelectedMonth || thisMonthStr()];
+  const n = calRangeMode==='2bulan' ? 2 : 12;
+  const arr = [];
+  const d = new Date(); d.setDate(1);
+  for(let i=n-1;i>=0;i--){
+    const dt = new Date(d.getFullYear(), d.getMonth()-i, 1);
+    arr.push(dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0'));
+  }
+  return arr;
+}
+function populateCalMonthPicker_(){
+  const sel = document.getElementById('calBulanPicker');
+  if(!sel) return;
+  const months = new Set(DATA.map(t=>ym(t.tanggal)));
+  months.add(thisMonthStr());
+  const sorted = Array.from(months).sort().reverse();
+  if(!calSelectedMonth) calSelectedMonth = thisMonthStr();
+  sel.innerHTML = sorted.map(m=>`<option value="${m}" ${m===calSelectedMonth?'selected':''}>${monthLabel(m)}</option>`).join('');
+}
 function setCalMetric(m){
   calMetric = m;
   document.getElementById('calDayDetail').style.display = 'none';
   renderCalendarHeatmap_();
 }
-function renderCalendarHeatmap_(){
-  const grid = document.getElementById('calGrid');
-  if(!grid) return;
-  document.querySelectorAll('#calMetricSeg button').forEach(b=> b.classList.toggle('active', b.dataset.val===calMetric));
-
-  const TOTAL_WEEKS = 53;
-  const weeks = buildCalendarWeeks_(TOTAL_WEEKS);
+function setCalRange(mode){
+  calRangeMode = mode;
+  document.getElementById('calDayDetail').style.display = 'none';
+  renderCalendarHeatmap_();
+}
+function onCalBulanChange(){
+  calSelectedMonth = document.getElementById('calBulanPicker').value;
+  renderCalendarHeatmap_();
+}
+function buildMonthGridHtml_(mStr, daily, th){
+  const [y,m] = mStr.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const startDow = (new Date(y, m-1, 1).getDay()+6)%7; // 0=Senin
   const today = new Date(); today.setHours(0,0,0,0);
-  const daily = buildDailyTotals_();
 
-  const dayMeta = [];
-  weeks.forEach(week=>{
-    week.forEach(dt=>{
-      const dateStr = fmtYMD_(dt);
-      const isFuture = dt > today;
-      const rec = daily[dateStr];
-      let value = 0, count = 0;
-      if(rec){
-        count = rec.count;
-        value = calMetric==='keluar' ? rec.keluar : calMetric==='masuk' ? rec.masuk : (rec.masuk-rec.keluar);
-      }
-      dayMeta.push({ dateStr, value, count, isFuture });
-    });
-  });
-
-  const magnitudes = dayMeta.filter(d=>!d.isFuture).map(d=> calMetric==='net' ? Math.abs(d.value) : d.value);
-  const th = calColorLevels_(magnitudes);
-
-  let html = '';
-  let lastMonth = null;
-  weeks.forEach((week,w)=>{
-    const monday = week[0];
-    if(monday.getMonth()!==lastMonth){
-      html += `<div class="cal-monthlabel" style="grid-column:${w+2}; grid-row:1;">${MONTH_NAMES[monday.getMonth()].slice(0,3)}</div>`;
-      lastMonth = monday.getMonth();
+  let cellsHtml = '';
+  for(let i=0;i<startDow;i++) cellsHtml += `<div class="calm-cell calm-pad"></div>`;
+  for(let day=1; day<=daysInMonth; day++){
+    const dt = new Date(y, m-1, day);
+    const dateStr = fmtYMD_(dt);
+    if(dt>today){
+      cellsHtml += `<div class="calm-cell calm-future"><span class="calm-daynum">${day}</span></div>`;
+      continue;
     }
-  });
-  ['Sen','Sel','Rab','Kam','Jum','Sab','Min'].forEach((dn,i)=>{
-    if(i===0||i===2||i===4){
-      html += `<div class="cal-daylabel" style="grid-column:1; grid-row:${i+2};">${dn}</div>`;
-    }
-  });
-  dayMeta.forEach((d,idx)=>{
-    const w = Math.floor(idx/7), r = idx%7;
-    if(d.isFuture){
-      html += `<div class="cal-cell cal-empty" style="grid-column:${w+2}; grid-row:${r+2};"></div>`;
-      return;
-    }
-    const level = calLevelForValue_(calMetric==='net' ? Math.abs(d.value) : d.value, th);
-    const tone = calMetric==='net' ? (d.value<0 ? 'neg' : 'pos') : calMetric;
+    const rec = daily[dateStr];
+    let value=0, count=0;
+    if(rec){ count=rec.count; value = calMetric==='keluar'?rec.keluar:calMetric==='masuk'?rec.masuk:(rec.masuk-rec.keluar); }
+    const level = calLevelForValue_(calMetric==='net'?Math.abs(value):value, th);
+    const tone = calMetric==='net' ? (value<0?'neg':'pos') : calMetric;
     const cls = level===0 ? 'cal-l0' : `cal-${tone}-l${level}`;
-    const title = `${fmtDateShort(d.dateStr)}: ${rupiah(d.value)}${d.count?` (${d.count} transaksi)`:''}`;
-    html += `<div class="cal-cell ${cls}" title="${escapeHtml(title)}" onclick="openCalDayDetail_('${d.dateStr}')" style="grid-column:${w+2}; grid-row:${r+2};"></div>`;
-  });
+    const title = `${fmtDateShort(dateStr)}: ${rupiah(value)}${count?` (${count} transaksi)`:''}`;
+    cellsHtml += `<div class="calm-cell ${cls}" title="${escapeHtml(title)}" onclick="openCalDayDetail_('${dateStr}')"><span class="calm-daynum">${day}</span></div>`;
+  }
+  return `
+    <div class="calm-block">
+      <div class="calm-month-title">${monthLabel(mStr)}</div>
+      <div class="calm-dow-row">${['Sen','Sel','Rab','Kam','Jum','Sab','Min'].map(d=>`<div>${d}</div>`).join('')}</div>
+      <div class="calm-grid">${cellsHtml}</div>
+    </div>`;
+}
+function renderCalendarHeatmap_(){
+  const container = document.getElementById('calGrid');
+  if(!container) return;
+  document.querySelectorAll('#calMetricSeg button').forEach(b=> b.classList.toggle('active', b.dataset.val===calMetric));
+  document.querySelectorAll('#calRangeSeg button').forEach(b=> b.classList.toggle('active', b.dataset.val===calRangeMode));
+  document.getElementById('calBulanPickerWrap').style.display = calRangeMode==='bulan' ? 'block' : 'none';
 
-  grid.innerHTML = html;
+  populateCalMonthPicker_();
+  const months = calMonthsToShow_();
+  const daily = buildDailyTotals_();
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const allValues = [];
+  months.forEach(mStr=>{
+    const [y,m] = mStr.split('-').map(Number);
+    const daysInMonth = new Date(y,m,0).getDate();
+    for(let day=1; day<=daysInMonth; day++){
+      const dt = new Date(y,m-1,day);
+      if(dt>today) continue;
+      const rec = daily[fmtYMD_(dt)];
+      let value=0;
+      if(rec) value = calMetric==='keluar'?rec.keluar:calMetric==='masuk'?rec.masuk:(rec.masuk-rec.keluar);
+      allValues.push(calMetric==='net'?Math.abs(value):value);
+    }
+  });
+  const th = calColorLevels_(allValues);
+
+  container.className = 'cal-months-wrap' + (calRangeMode!=='bulan' ? ' calm-compact' : '');
+  container.innerHTML = months.map(mStr=> buildMonthGridHtml_(mStr, daily, th)).join('');
 
   ['1','2','3','4'].forEach(lvl=>{
     const el = document.getElementById('calLegend'+lvl);
     if(el) el.className = 'cal-cell ' + (calMetric==='net' ? 'cal-pos-l'+lvl : `cal-${calMetric}-l${lvl}`);
   });
-
-  const wrap = document.getElementById('calScrollWrap');
-  if(wrap) wrap.scrollLeft = wrap.scrollWidth;
 }
 function openCalDayDetail_(dateStr){
   const box = document.getElementById('calDayDetail');
