@@ -1118,34 +1118,51 @@
 const APPS_SCRIPT_API_URL = 'https://script.google.com/macros/s/AKfycbzBxkzz7vN0FfotCmp056V5HK9P-guIllsxi-fdQptC9FVtTn6ixCHL7eAZ1sHBpVFt/exec';
 
 let __kasJsonpSeq = 0;
-function apiCall_(action, payload, retriesLeft){
-  if (retriesLeft === undefined) retriesLeft = 1; // 1x retry otomatis kalau timeout/gagal load
+function apiCall_(action, payload){
+  // TIDAK ada retry otomatis di sini lagi -- retry yang nembak request baru
+  // padahal request lama masih nyantol di background itu justru MEMPERPARAH:
+  // makin numpuk request ke server yang sudah lambat, makin lambat lagi.
+  // Timeout dikasih waktu lebih lega (45 detik) supaya proses yang wajar-wajar
+  // lambat (spreadsheet besar / server baru "bangun") tetap sempat kejawab.
   return new Promise(function(resolve, reject){
     var cbName = '__kasCb' + (++__kasJsonpSeq) + '_' + Date.now();
     var script = document.createElement('script');
     var timeoutId;
+    var settled = false;
 
     function cleanup(){
       clearTimeout(timeoutId);
-      delete window[cbName];
+      // JANGAN "delete window[cbName]" -- tag <script> yang sudah dilepas dari
+      // DOM TIDAK otomatis membatalkan request yang sedang jalan di background.
+      // Kalau nama fungsi callback-nya dihapus tapi respons telat tetap datang,
+      // itu bikin "Uncaught ReferenceError: ... is not defined" (persis yang
+      // muncul di console). Ganti jadi fungsi kosong supaya respons telat
+      // diserap diam-diam, tidak error, dan tidak dipakai (promise sudah settle).
+      window[cbName] = function(){};
       if (script.parentNode) script.parentNode.removeChild(script);
     }
 
     window[cbName] = function(data){
+      if (settled) return;
+      settled = true;
       cleanup();
       if (data && data.error) reject(new Error(data.error));
       else resolve(data && data.result);
     };
 
     script.onerror = function(){
+      if (settled) return;
+      settled = true;
       cleanup();
       reject(new Error('Gagal terhubung ke server (script load error)'));
     };
 
     timeoutId = setTimeout(function(){
+      if (settled) return;
+      settled = true;
       cleanup();
       reject(new Error('Server tidak merespons (timeout)'));
-    }, 25000);
+    }, 45000);
 
     var url = APPS_SCRIPT_API_URL
       + '?action=' + encodeURIComponent(action)
@@ -1153,9 +1170,6 @@ function apiCall_(action, payload, retriesLeft){
       + '&callback=' + cbName;
     script.src = url;
     document.head.appendChild(script);
-  }).catch(function(err){
-    if (retriesLeft > 0) return apiCall_(action, payload, retriesLeft - 1);
-    throw err;
   });
 }
 function apiGet_(action, params){
@@ -1991,11 +2005,15 @@ let bootDone = false;
 let bootTimeoutId = null;
 
 window.addEventListener('DOMContentLoaded', () => {
-  // Jika belum ada respons apapun dari server dalam 20 detik,
-  // kemungkinan besar skrip Apps Script belum diberi izin akses (authorize).
+  // Safety net SAJA -- request boot sendiri (apiCall_) sudah py timeout 45
+  // detik dan akan panggil showBootError lewat .catch kalau gagal. Timer ini
+  // sengaja dikasih jeda lebih lama (55 detik) supaya TIDAK race / mendahului
+  // timeout request yang masih berjalan wajar -- itu penyebab bug sebelumnya:
+  // overlay declare "gagal" duluan padahal request lama masih nyantol di
+  // background, lalu pas dia beres belakangan jadi ReferenceError di console.
   bootTimeoutId = setTimeout(function(){
-    if(!bootDone) showBootError('Server tidak merespons dalam 35 detik. Skrip kemungkinan belum diberi izin akses (belum di-Authorize), atau koneksi terputus.');
-  }, 35000);
+    if(!bootDone) showBootError('Server tidak merespons dalam 55 detik. Skrip kemungkinan belum diberi izin akses (belum di-Authorize), atau koneksi terputus.');
+  }, 55000);
 
   loadChartJs(CHART_CDN_SOURCES).then(function(ok){
     chartJsReady = ok;
@@ -2034,17 +2052,20 @@ function hideBootOverlay(){
   setTimeout(()=> ov.remove(), 400);
 }
 
+let __refreshAllInFlight = false;
 function refreshAll(showToast, isInitial){
+  if(__refreshAllInFlight) return; // cegah numpuk request kalau tombol refresh/Coba Lagi dipencet berkali-kali
+  __refreshAllInFlight = true;
   toggleTopLoading(true);
   if(!isInitial){
     skeletonRows('tblRecent', 5, 4);
     skeletonRows('tblTransaksi', 7, 6);
   }
 
-  // Dulu 6 request paralel (Promise.all) ke Web App yang sama -- di cold
-  // start GAS itu 6x beban buka-spreadsheet & rawan timeout, dan kalau satu
-  // gagal semua ikut gagal. Sekarang cuma 1 request, backend yang gabungin
-  // (lihat getBootData_ di code.gs). apiPost_ juga sudah retry 1x sendiri.
+  // 1 request tunggal ke getBootData_ (backend gabungin transaksi/kategori/
+  // pengaturan/tagihan/tabungan/budget jadi satu balasan) lewat JSONP -- lihat
+  // apiCall_ di atas, TIDAK ada retry otomatis lagi (retry numpuk request malah
+  // memperlambat server yang sudah lambat).
   const bootPromise = new Promise(function(resolve, reject){
     google.script.run
       .withSuccessHandler(resolve)
@@ -2082,6 +2103,9 @@ function refreshAll(showToast, isInitial){
       } else {
         showToast_('Gagal memuat data: ' + msg, true);
       }
+    })
+    .finally(function(){
+      __refreshAllInFlight = false;
     });
 }
 
@@ -2384,6 +2408,15 @@ function setRowLoading_(id, on){
  * refreshAll) supaya filter, halaman aktif, dan pengaturan lain yang sedang
  * dibuka TIDAK ikut ke-reset. Dipakai setiap kali ada perubahan transaksi
  * (tambah/edit/hapus/tandai lunas/setor/tarik tabungan). */
+function applyTransaksiListLocal_(rawList){
+  DATA = computeSaldo(rawList);
+  populateBulanOptions();
+  reapplyFiltersKeepPage_();
+  renderDashboard();
+  renderRekap();
+  renderRunway();
+  renderBudget();
+}
 function reloadTransaksiData_(opts){
   opts = opts || {};
   const dim = !opts.skipDim;
@@ -2391,13 +2424,7 @@ function reloadTransaksiData_(opts){
   return new Promise(function(resolve, reject){
     google.script.run
       .withSuccessHandler(function(rows){
-        DATA = computeSaldo(rows);
-        populateBulanOptions();
-        reapplyFiltersKeepPage_();
-        renderDashboard();
-        renderRekap();
-        renderRunway();
-        renderBudget();
+        applyTransaksiListLocal_(rows);
         if(dim) setTableLoading_(false);
         resolve();
       })
@@ -3188,27 +3215,39 @@ function submitTransaksi(){
 
   if(editingId){
     payload.id = editingId;
+    const oldId = editingId;
     google.script.run
-      .withSuccessHandler(function(){ afterSave('Transaksi berhasil diperbarui'); })
+      .withSuccessHandler(function(tx){ afterSave('Transaksi berhasil diperbarui', tx, oldId); })
       .withFailureHandler(function(err){ onSaveFail(err); })
       .updateTransaksi(payload);
   } else {
     google.script.run
-      .withSuccessHandler(function(){ afterSave('Transaksi berhasil ditambahkan'); })
+      .withSuccessHandler(function(tx){ afterSave('Transaksi berhasil ditambahkan', tx, null); })
       .withFailureHandler(function(err){ onSaveFail(err); })
       .addTransaksi(payload);
   }
 }
-function afterSave(msg){
+function afterSave(msg, tx, oldId){
   const btn = document.getElementById('btnSaveTrans');
   btn.disabled = false; btn.innerHTML = 'Simpan Transaksi';
-  const wasEditingId = editingId;
   closeTransModal();
   showToast_(msg, false);
-  reloadTransaksiData_({skipDim: !!wasEditingId}).catch(function(err){
-    if(wasEditingId) setRowLoading_(wasEditingId, false);
-    showToast_('Tersimpan, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
-  });
+  // Update lokal instan pakai data yang sudah dibalikin server -- TIDAK perlu
+  // fetch ulang SEMUA transaksi dari SEMUA bulan (itu yang bikin "menyimpan"
+  // terasa lama, padahal yang berubah cuma 1 baris).
+  if(tx){
+    let list = DATA.slice();
+    if(oldId != null) list = list.filter(t=> t.id !== oldId); // kalau tanggal diedit ke bulan lain, id lama sudah tidak berlaku
+    list.push(tx);
+    applyTransaksiListLocal_(list);
+    if(oldId != null) setRowLoading_(oldId, false);
+  } else {
+    // fallback kalau server entah kenapa tidak mengembalikan data transaksi
+    reloadTransaksiData_({skipDim: oldId != null}).catch(function(err){
+      if(oldId != null) setRowLoading_(oldId, false);
+      showToast_('Tersimpan, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
+    });
+  }
 }
 function onSaveFail(err){
   const btn = document.getElementById('btnSaveTrans');
@@ -3244,10 +3283,10 @@ function openConfirm(id){
     title: 'Hapus Transaksi?',
     successMsg: 'Transaksi berhasil dihapus',
     onSuccess: function(){
-      reloadTransaksiData_({skipDim:true}).catch(function(err){
-        setRowLoading_(id, false);
-        showToast_('Terhapus, tapi gagal memuat ulang tabel: ' + ((err&&err.message)||err), true);
-      });
+      // Hapus lokal instan -- kita sudah tahu persis id mana yang dihapus,
+      // tidak perlu fetch ulang semua transaksi dari semua bulan.
+      applyTransaksiListLocal_(DATA.filter(t=> t.id !== id));
+      setRowLoading_(id, false);
     }
   });
 }
