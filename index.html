@@ -2438,7 +2438,7 @@ function renderDashboard(){
 
   document.getElementById('cardMasukBulan').textContent = rupiah(masukCur);
   document.getElementById('cardKeluarBulan').textContent = rupiah(keluarCur);
-  const adminTx = curTx.filter(t => t.keterangan.trim().toLowerCase() === 'ad');
+  const adminTx = curTx.filter(t => t.kategori === 'Biaya Admin');
   const adminCur = adminTx.reduce((s,t)=>s+t.jumlah,0);
   document.getElementById('cardAdminBulan').textContent = rupiah(adminCur);
   document.getElementById('cardAdminSub').textContent = adminTx.length + ' transaksi bulan ini';
