@@ -703,6 +703,8 @@
           </div>
         </div>
 
+        <div class="delta" id="periodeRangeInfo" style="margin:-8px 0 14px; color:var(--text-2); font-size:12px;">Memuat periode...</div>
+
       <div class="panel" id="panelRunway">
         <div class="panel-head">
           <h3>🎯 Jatah Harian sampai Gajian</h3>
@@ -970,7 +972,7 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h3>📊 Proyeksi Akhir Bulan per Kategori</h3><span class="hint">Berdasar rata-rata harian, bulan berjalan</span></div>
+          <div class="panel-head"><h3>📊 Proyeksi Akhir Periode per Kategori</h3><span class="hint">Berdasar rata-rata harian sejak gajian terakhir</span></div>
           <div id="proyeksiAkhirBulanBody"><div class="delta">Memuat...</div></div>
         </div>
       </section>
@@ -1347,20 +1349,79 @@ const MONTH_NAMES = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt'
 
 let PENGATURAN = { tanggalGajian: 25, targetMinimumHarian: 50000, gajiBulanan: 0 };
 
+/* ==================== PERIODE "GAJIAN KE GAJIAN" ====================
+ * Dulu "awal bulan" versi app = tanggal tetap dari Pengaturan (mis. selalu
+ * tgl 25). Sekarang "awal bulan" = tanggal transaksi berkategori "Gaji"
+ * PALING BARU yang beneran tercatat -- walau gajiannya meleset ke tgl 30,
+ * 31, atau tanggal lain tiap bulannya, begitu transaksi Gaji itu diinput,
+ * app otomatis pakai tanggal itu sebagai batas awal periode Budget/Saving
+ * Rate/ringkasan Dashboard. Tanggal di Pengaturan tetap dipakai, tapi
+ * sekarang cuma jadi ESTIMASI untuk periode yang gajian aslinya belum
+ * kejadian (periode berjalan sampai sekarang, atau proyeksi ke depan).
+ */
+function daftarTanggalGajianAktual_(){
+  return DATA.filter(t => t.kategori === 'Gaji' && t.jenis === 'Masuk')
+    .map(t => parseYMD(t.tanggal))
+    .sort((a,b)=> a - b);
+}
+
+/** Perkiraan tanggal gajian di bulan+tahun tertentu dari Pengaturan,
+ * diclamp ke akhir bulan (mis. tgl 31 di Februari -> jadi tgl 28/29). */
+function perkiraanTanggalGajian_(year, month){
+  const tgl = PENGATURAN.tanggalGajian;
+  const akhirBulan = new Date(year, month + 1, 0).getDate();
+  return new Date(year, month, Math.min(tgl, akhirBulan));
+}
+
+/** Batas periode "gajian ke gajian" yang berlaku HARI INI.
+ * mulaiPeriode = tanggal Gaji nyata terakhir yang sudah lewat (fallback ke
+ * perkiraan Pengaturan kalau belum pernah ada transaksi Gaji sama sekali).
+ * berikutnya = perkiraan gajian selanjutnya (belum kejadian -> masih
+ * estimasi dari Pengaturan; begitu beneran diinput, jadi mulaiPeriode
+ * periode berikutnya secara otomatis). */
 function getPeriodeGajian_(){
   const today = new Date(); today.setHours(0,0,0,0);
-  const tgl = PENGATURAN.tanggalGajian;
-  function buatTanggal(y, m){
-    const akhirBulan = new Date(y, m + 1, 0).getDate();
-    return new Date(y, m, Math.min(tgl, akhirBulan));
+  const gajianLalu = daftarTanggalGajianAktual_().filter(d => d <= today);
+
+  let mulaiPeriode;
+  if (gajianLalu.length){
+    mulaiPeriode = gajianLalu[gajianLalu.length - 1];
+  } else {
+    const perkiraanBulanIni = perkiraanTanggalGajian_(today.getFullYear(), today.getMonth());
+    if (perkiraanBulanIni <= today){
+      mulaiPeriode = perkiraanBulanIni;
+    } else {
+      const blnLalu = today.getMonth() - 1, thnLalu = today.getFullYear() - (blnLalu < 0 ? 1 : 0);
+      mulaiPeriode = perkiraanTanggalGajian_(thnLalu, (blnLalu + 12) % 12);
+    }
   }
-  const gajianBulanIni = buatTanggal(today.getFullYear(), today.getMonth());
-  if (gajianBulanIni <= today){
-    const bln2 = today.getMonth() + 1, thn2 = today.getFullYear() + (bln2 > 11 ? 1 : 0);
-    return { berikutnya: buatTanggal(thn2, bln2 % 12), mulaiPeriode: gajianBulanIni };
+
+  let berikutnya = perkiraanTanggalGajian_(mulaiPeriode.getFullYear(), mulaiPeriode.getMonth() + 1);
+  while (berikutnya <= mulaiPeriode){
+    const b = berikutnya.getMonth() + 1, t2 = berikutnya.getFullYear() + (b > 11 ? 1 : 0);
+    berikutnya = perkiraanTanggalGajian_(t2, b % 12);
   }
-  const blnLalu = today.getMonth() - 1, thnLalu = today.getFullYear() - (blnLalu < 0 ? 1 : 0);
-  return { berikutnya: gajianBulanIni, mulaiPeriode: buatTanggal(thnLalu, (blnLalu + 12) % 12) };
+  return { mulaiPeriode, berikutnya };
+}
+
+/** Periode SEBELUM mulaiPeriodeSaatIni, dipakai buat perbandingan "vs
+ * periode lalu" di Dashboard. Sama logikanya: pakai gajian nyata sebelum
+ * batas itu kalau ada, fallback estimasi mundur satu bulan kalau enggak. */
+function getPeriodeGajianSebelumnya_(mulaiPeriodeSaatIni){
+  const gajianSebelum = daftarTanggalGajianAktual_().filter(d => d < mulaiPeriodeSaatIni);
+  if (gajianSebelum.length){
+    return { mulaiPeriode: gajianSebelum[gajianSebelum.length - 1], berikutnya: mulaiPeriodeSaatIni };
+  }
+  const bln = mulaiPeriodeSaatIni.getMonth() - 1, thn = mulaiPeriodeSaatIni.getFullYear() - (bln < 0 ? 1 : 0);
+  return { mulaiPeriode: perkiraanTanggalGajian_(thn, (bln + 12) % 12), berikutnya: mulaiPeriodeSaatIni };
+}
+
+/** Transaksi dalam satu rentang periode [mulai, berikutnya) -- batas atas
+ * eksklusif, biar transaksi tepat di tanggal gajian berikutnya masuk ke
+ * periode BARU, bukan ke periode yang lagi ditutup. */
+function transaksiDalamPeriode_(mulai, berikutnya){
+  const mulaiStr = fmtYMD_(mulai), akhirStr = fmtYMD_(berikutnya);
+  return DATA.filter(t => t.tanggal >= mulaiStr && t.tanggal < akhirStr);
 }
 
 /** Cari hari-tersisa (r) minimum di mana saldo/r > target, lalu hitung
@@ -1372,16 +1433,31 @@ function hitungHariMenahan_(saldo, sisaHari, target){
   return { hariMenahan: null, sisaHariSaatNormal: null, bisaNormal: false };
 }
 
+/** Khusus buat "Jatah Harian sampai Gajian" (Runway) -- tanggal gajian
+ * berikutnya di sini SENGAJA murni dari tanggal manual di Pengaturan, TIDAK
+ * ikut logika deteksi otomatis dari transaksi "Gaji" seperti Budget/Saving
+ * Rate/Dashboard. Biar Runway tetap bisa kamu atur sendiri kapan cutoff-nya,
+ * walau gajian aslinya kadang meleset tanggal. */
+function getBerikutnyaGajianManual_(){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const gajianBulanIni = perkiraanTanggalGajian_(today.getFullYear(), today.getMonth());
+  if (gajianBulanIni <= today){
+    const bln2 = today.getMonth() + 1, thn2 = today.getFullYear() + (bln2 > 11 ? 1 : 0);
+    return perkiraanTanggalGajian_(thn2, bln2 % 12);
+  }
+  return gajianBulanIni;
+}
+
 function renderRunway(){
   const today = new Date(); today.setHours(0,0,0,0);
-  const { berikutnya } = getPeriodeGajian_();
+  const berikutnya = getBerikutnyaGajianManual_();
   const sisaHari = Math.max(1, Math.ceil((berikutnya - today) / 86400000));
 
   const saldoSekarang = currentSaldo();
   const jatahHarianAman = saldoSekarang / sisaHari;
 
   document.getElementById('runwayJatah').textContent = rupiah(Math.max(0, jatahHarianAman));
-  document.getElementById('runwaySub').textContent = sisaHari + ' hari lagi sampai gajian (tgl ' + PENGATURAN.tanggalGajian + ')';
+  document.getElementById('runwaySub').textContent = sisaHari + ' hari lagi sampai gajian (perkiraan ' + berikutnya.getDate() + ' ' + MONTH_NAMES[berikutnya.getMonth()] + ')';
 
   const warnEl = document.getElementById('runwayWarning');
   warnEl.style.display = 'block';
@@ -1421,7 +1497,7 @@ function renderHealthScore(){
 
   // A. Runway
   const today = new Date(); today.setHours(0,0,0,0);
-  const { berikutnya } = getPeriodeGajian_();
+  const berikutnya = getBerikutnyaGajianManual_();
   const sisaHari = Math.max(1, Math.ceil((berikutnya - today) / 86400000));
   const saldoSekarang = currentSaldo();
   const jatahHarianAman = saldoSekarang / sisaHari;
@@ -1441,9 +1517,9 @@ function renderHealthScore(){
     subBudget = 'Terpakai ' + pctUsage + '% dari alokasi';
   }
 
-  // C. Saving Rate bulan ini (skip kalau belum ada pemasukan tercatat)
-  const curM = thisMonthStr();
-  const curTx = DATA.filter(t=>ym(t.tanggal)===curM);
+  // C. Saving Rate periode gajian ini (skip kalau belum ada pemasukan tercatat)
+  const { mulaiPeriode: mulaiSaving, berikutnya: akhirSaving } = getPeriodeGajian_();
+  const curTx = transaksiDalamPeriode_(mulaiSaving, akhirSaving);
   const masukCur = curTx.filter(t=>t.jenis==='Masuk').reduce((s,t)=>s+t.jumlah,0);
   const keluarCur = curTx.filter(isPengeluaranRiil_).reduce((s,t)=>s+t.jumlah,0);
   let scoreSaving = null, subSaving = 'Belum ada pemasukan bulan ini';
@@ -1796,10 +1872,11 @@ function pemasukanBulanIni_(){
   return PENGATURAN.gajiBulanan || 0;
 }
 function keluarBulanIniByKategori_(){
-  const curM = thisMonthStr();
+  const { mulaiPeriode, berikutnya } = getPeriodeGajian_();
   const byCat = {};
-  DATA.filter(t => isPengeluaranRiil_(t) && ym(t.tanggal)===curM)
-      .forEach(t => { byCat[t.kategori] = (byCat[t.kategori]||0) + t.jumlah; });
+  transaksiDalamPeriode_(mulaiPeriode, berikutnya)
+    .filter(isPengeluaranRiil_)
+    .forEach(t => { byCat[t.kategori] = (byCat[t.kategori]||0) + t.jumlah; });
   return byCat;
 }
 function budgetRupiah_(persen, pemasukan){ return Math.round(pemasukan * (persen/100)); }
@@ -2341,10 +2418,18 @@ function renderDashboard(){
   document.getElementById('cardSaldo').textContent = rupiah(saldo);
   document.getElementById('sidebarSaldo').textContent = rupiah(saldo);
 
-  const curM = thisMonthStr();
-  const prevM = prevMonthStr(curM);
-  const curTx = DATA.filter(t=>ym(t.tanggal)===curM);
-  const prevTx = DATA.filter(t=>ym(t.tanggal)===prevM);
+  const { mulaiPeriode, berikutnya } = getPeriodeGajian_();
+  const { mulaiPeriode: mulaiSebelumnya } = getPeriodeGajianSebelumnya_(mulaiPeriode);
+  const curTx = transaksiDalamPeriode_(mulaiPeriode, berikutnya);
+  const prevTx = transaksiDalamPeriode_(mulaiSebelumnya, mulaiPeriode);
+
+  const akhirPeriodeTampil = new Date(berikutnya.getTime() - 86400000); // H-1 dari gajian berikutnya, buat ditampilkan sbg tgl akhir inklusif
+  const rangeEl = document.getElementById('periodeRangeInfo');
+  if (rangeEl){
+    const now_ = new Date();
+    const fmt = d => d.getDate() + ' ' + MONTH_NAMES[d.getMonth()] + (d.getFullYear()!==now_.getFullYear() ? ' ' + d.getFullYear() : '');
+    rangeEl.textContent = '📅 Periode berjalan: ' + fmt(mulaiPeriode) + ' – ' + fmt(akhirPeriodeTampil) + ' (dihitung dari transaksi Gaji terakhir)';
+  }
 
   const masukCur = curTx.filter(t=>t.jenis==='Masuk').reduce((s,t)=>s+t.jumlah,0);
   const keluarCur = curTx.filter(isPengeluaranRiil_).reduce((s,t)=>s+t.jumlah,0);
@@ -2754,14 +2839,14 @@ function renderInsightMingguan(){
 function renderProyeksiAkhirBulan(){
   const el = document.getElementById('proyeksiAkhirBulanBody');
   if(!el) return;
-  const today = new Date();
-  const totalHari = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
-  const hariBerjalan = today.getDate();
-  const curM = thisMonthStr();
-  const byCat = sumByKategori_(DATA.filter(t=>ym(t.tanggal)===curM));
+  const today = new Date(); today.setHours(0,0,0,0);
+  const { mulaiPeriode, berikutnya } = getPeriodeGajian_();
+  const totalHari = Math.max(1, Math.round((berikutnya - mulaiPeriode) / 86400000));
+  const hariBerjalan = Math.max(1, Math.round((today - mulaiPeriode) / 86400000) + 1);
+  const byCat = sumByKategori_(transaksiDalamPeriode_(mulaiPeriode, berikutnya));
   const kats = Object.keys(byCat).sort((a,b)=>byCat[b]-byCat[a]).slice(0,6);
 
-  if(!kats.length){ el.innerHTML = '<div class="delta">Belum ada pengeluaran bulan ini.</div>'; return; }
+  if(!kats.length){ el.innerHTML = '<div class="delta">Belum ada pengeluaran periode ini.</div>'; return; }
 
   el.innerHTML = kats.map(k=>{
     const sekarang = byCat[k];
@@ -2770,7 +2855,7 @@ function renderProyeksiAkhirBulan(){
       <span class="tag ${kategoriTagClass_(k)}">${escapeHtml(k)}</span>
       <div style="text-align:right; font-size:12.5px;">
         <div style="color:var(--text-2);">Sejauh ini: ${rupiah(sekarang)}</div>
-        <div style="font-weight:700;">Proyeksi akhir bulan: ${rupiah(proyeksi)}</div>
+        <div style="font-weight:700;">Proyeksi akhir periode: ${rupiah(proyeksi)}</div>
       </div>
     </div>`;
   }).join('');
