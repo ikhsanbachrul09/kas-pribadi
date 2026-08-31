@@ -4,7 +4,7 @@
 // walau sedang tidak ada koneksi. Data transaksi TETAP butuh koneksi
 // internet karena selalu diambil langsung dari Google Apps Script.
 
-const CACHE_NAME = 'kas-pribadi-shell-v33';
+const CACHE_NAME = 'kas-pribadi-shell-v34';
 const SHELL_FILES = [
   './',
   './index.html',
